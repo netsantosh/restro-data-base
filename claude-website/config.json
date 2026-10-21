@@ -1,0 +1,10 @@
+{
+  "site_name": "Restro Guide",
+  "base_url": "https://example.com",
+  "base_path": "",
+  "locale": "en-IN",
+  "min_area_restaurants": 3,
+  "ignore_names": ["Google Maps"],
+  "contact_email": "hello@example.com",
+  "tagline": "Find restaurants across India"
+}

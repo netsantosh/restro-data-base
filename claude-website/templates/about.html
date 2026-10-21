@@ -1,0 +1,13 @@
+{% extends "base.html" %}
+{% import "macros.html" as m %}
+{% block main %}
+{{ m.breadcrumbs(crumbs) }}
+<h1>About {{ site.site_name }}</h1>
+<div class="prose">
+<p>{{ site.site_name }} is a restaurant directory. It lists restaurants by country, state, city and area so you can compare places to eat in one place.</p>
+<h2>Where the data comes from</h2>
+<p>Names, addresses, phone numbers, ratings and photos are collected from public Google Maps listings. Ratings and review counts shown here are Google Maps figures and are refreshed when the listings are updated. They are not reviews written on this site.</p>
+<h2>Corrections</h2>
+<p>If a restaurant has closed, moved or has wrong details, please <a href="{{ u('contact') }}">contact us</a> with the page address and we will correct it.</p>
+</div>
+{% endblock %}

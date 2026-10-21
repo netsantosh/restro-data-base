@@ -1,0 +1,42 @@
+{% extends "base.html" %}
+{% import "macros.html" as m %}
+{% block main %}
+{{ m.breadcrumbs(crumbs) }}
+<h1>{{ h1 }}</h1>
+<div class="intro"><p>{{ intro }}</p></div>
+
+<section class="filters" aria-label="Filter restaurants">
+  <label>Name <input id="flt-q" type="search" placeholder="Search in {{ node.name }}"></label>
+  <label>Cuisine
+    <select id="flt-cuisine">
+      <option value="">All cuisines</option>
+      {% for c in cuisines %}<option>{{ c }}</option>{% endfor %}
+    </select>
+  </label>
+  <label>Rating
+    <select id="flt-rating">
+      <option value="0">Any</option><option value="3.5">3.5+</option><option value="4">4.0+</option><option value="4.5">4.5+</option>
+    </select>
+  </label>
+  <label>Sort by
+    <select id="flt-sort">
+      <option value="top">Top rated</option><option value="reviews">Most reviewed</option><option value="name">Name A-Z</option>
+    </select>
+  </label>
+  <p id="flt-count" class="small" aria-live="polite">{{ restaurants|length }} restaurants</p>
+</section>
+
+<div class="grid" id="grid">
+{% for r in restaurants %}{{ m.card(r) }}{% endfor %}
+</div>
+<p id="flt-empty" class="small" hidden>No restaurants match these filters.</p>
+
+{% if nearby %}
+<section>
+  <h2>Nearby areas in {{ city.name }}</h2>
+  {{ m.linklist(nearby) }}
+</section>
+{% endif %}
+<p class="more"><a href="{{ u(city.path) }}">All restaurants in {{ city.name }}</a> · <a href="{{ u(state.path) }}">Restaurants in {{ state.name }}</a></p>
+<script>window.FILTER=true;</script>
+{% endblock %}

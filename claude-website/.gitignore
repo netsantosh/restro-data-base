@@ -1,0 +1,4 @@
+dist/
+build_report.json
+__pycache__/
+*.xlsx

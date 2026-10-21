@@ -1,0 +1,22 @@
+{% extends "base.html" %}
+{% import "macros.html" as m %}
+{% block main %}
+<h1>{{ site.tagline }}</h1>
+<div class="intro">
+  <p>Browse {{ '{:,}'.format(total) }} restaurants across {{ n_areas }} areas. Pick a country, city or area, then filter by cuisine and Google Maps rating.</p>
+</div>
+<section>
+  <h2>Choose a country</h2>
+  {{ m.linklist(countries) }}
+</section>
+<section>
+  <h2>Popular cities</h2>
+  <ul class="linklist">
+  {% for c in cities %}<li><a href="{{ c.href }}">{{ c.name }}</a> <span class="count">{{ '{:,}'.format(c.count) }}</span></li>{% endfor %}
+  </ul>
+</section>
+<section>
+  <h2>Top rated restaurants</h2>
+  <div class="grid">{% for r in top %}{{ m.card(r) }}{% endfor %}</div>
+</section>
+{% endblock %}

@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="{{ site.locale }}">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{ title }}</title>
+<meta name="description" content="{{ description }}">
+<meta name="robots" content="{{ 'noindex,follow' if noindex else 'index,follow,max-image-preview:large' }}">
+<link rel="canonical" href="{{ canonical }}">
+<meta property="og:site_name" content="{{ site.site_name }}">
+<meta property="og:type" content="{{ og_type|default('website') }}">
+<meta property="og:title" content="{{ title }}">
+<meta property="og:description" content="{{ description }}">
+<meta property="og:url" content="{{ canonical }}">
+{% if og_image %}<meta property="og:image" content="{{ og_image }}">{% endif %}
+<meta name="twitter:card" content="summary">
+<link rel="stylesheet" href="{{ asset('static/style.css') }}">
+{% for item in schema %}
+<script type="application/ld+json">{{ item|tojson }}</script>
+{% endfor %}
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+<header class="top">
+  <div class="wrap bar">
+    <a class="brand" href="{{ u() }}">{{ site.site_name }}</a>
+    <div class="search">
+      <label class="vh" for="site-search">Search restaurants</label>
+      <input id="site-search" type="search" placeholder="Search restaurants" autocomplete="off">
+      <ul id="search-results" hidden></ul>
+    </div>
+  </div>
+</header>
+<main id="main" class="wrap">
+{% block main %}{% endblock %}
+</main>
+<footer class="foot">
+  <div class="wrap">
+    <p><a href="{{ u('about') }}">About</a> · <a href="{{ u('contact') }}">Contact</a> · <a href="{{ u('privacy-policy') }}">Privacy Policy</a></p>
+    <p class="small">Restaurant details are compiled from public Google Maps listings and may change. Check with the restaurant before you visit. &copy; {{ year }} {{ site.site_name }}.</p>
+  </div>
+</footer>
+<script>window.SITE={base:{{ site.base_path|tojson }}};</script>
+<script src="{{ asset('static/site.js') }}" defer></script>
+</body>
+</html>
