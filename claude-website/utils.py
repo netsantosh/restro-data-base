@@ -95,3 +95,29 @@ def km_between(a_lat, a_lon, b_lat, b_lon):
     x = math.radians(b_lon - a_lon) * math.cos(math.radians((a_lat + b_lat) / 2))
     y = math.radians(b_lat - a_lat)
     return 6371 * math.hypot(x, y)
+
+
+def initials(name):
+    words = re.findall(r"[A-Za-z0-9]+", s(name))
+    if not words:
+        return (s(name)[:1] or "?").upper()
+    return (words[0][0] + (words[1][0] if len(words) > 1 else "")).upper()
+
+
+def cuisine_phrase(names):
+    """'Popular cuisines include A, B and C.' (names only, no counts)"""
+    names = [n for n in names if n]
+    if not names:
+        return ""
+    if len(names) == 1:
+        return f"Popular here: {names[0]} food."
+    return "Popular cuisines include " + ", ".join(names[:-1]) + f" and {names[-1]}."
+
+
+def first_words(text, n=60):
+    words = s(text).split()
+    if len(words) <= n:
+        return " ".join(words)
+    cut = " ".join(words[:n])
+    m = re.search(r"^(.*[.!?])\s", cut + " ")
+    return m.group(1) if m and len(m.group(1).split()) >= 25 else cut.rstrip(",;:") + "."

@@ -8,38 +8,41 @@
 
 {% macro card(r) %}
 <article class="card" data-name="{{ r.name|lower }}" data-cuisine="{{ r.cuisine_short }}" data-rating="{{ r.rating or 0 }}" data-reviews="{{ r.reviews or 0 }}">
-  {% if r.photos %}<a class="thumb" href="{{ r.href }}" tabindex="-1" aria-hidden="true"><img src="{{ thumb(r.photos[0], 400, 300) }}" alt="{{ r.name }} in {{ r.area }}, {{ r.city }}" loading="lazy" width="400" height="300" referrerpolicy="no-referrer" onerror="this.parentNode.remove()"></a>{% endif %}
-  <h3><a href="{{ r.href }}">{{ r.name }}</a></h3>
-  <p class="meta">{{ r.cuisine_short or 'Restaurant' }}{% if r.price %} · {{ r.price }}{% endif %}</p>
-  <p class="meta">{{ r.area }}{% if r.rating %} · <span class="rate">★ {{ r.rating }}</span>{% if r.reviews %} ({{ '{:,}'.format(r.reviews) }}){% endif %}{% endif %}</p>
+  <a class="thumb" href="{{ r.href }}" tabindex="-1" aria-hidden="true"{% if not r.photos %} data-recover data-place="{{ r.place_id }}" data-i="0" data-alt="{{ r.name }} in {{ r.area }}, {{ r.city }}"{% endif %}>
+    <span class="ph">{{ initials(r.name) }}</span>
+    {% if r.photos %}<img src="{{ thumb(r.photos[0], 480, 360) }}" alt="{{ r.name }} in {{ r.area }}, {{ r.city }}" loading="lazy" width="480" height="360" referrerpolicy="no-referrer" data-place="{{ r.place_id }}" data-i="0" onerror="imgFail(this)">{% endif %}
+  </a>
+  <div class="card-body">
+    <h3><a href="{{ r.href }}">{{ r.name }}</a></h3>
+    <p class="meta">{{ r.cuisine_short or 'Restaurant' }}{% if r.price %} · {{ r.price }}{% endif %}</p>
+    <p class="meta">{{ r.area }}{% if r.rating %}<span class="rate"><span aria-hidden="true">★</span> {{ r.rating }}{% if r.reviews %} <small>({{ '{:,}'.format(r.reviews) }})</small>{% endif %}</span>{% endif %}</p>
+  </div>
 </article>
 {% endmacro %}
 
-{% macro linklist(items) %}
-<ul class="linklist">
-{% for c in items %}
-<li><a href="{{ c.href }}">{{ c.name }}</a> <span class="count">{{ '{:,}'.format(c.count) }}</span></li>
+{% macro tiles(items) %}
+<ul class="tiles">
+{% for t in items %}
+<li><a href="{{ t.href }}"><span class="t-name">{{ t.name }}</span>{% if t.sub %}<span class="t-sub">{{ t.sub }}</span>{% endif %}<span class="t-go" aria-hidden="true">&rarr;</span></a></li>
 {% endfor %}
 </ul>
 {% endmacro %}
 
 {% macro prose(sections) %}
 {% for sec in sections %}
-<section class="prose">
-  <h2>{{ sec.h2 }}</h2>
-  {% for p in sec.body|paragraphs %}<p>{{ p }}</p>{% endfor %}
-</section>
+<h2>{{ sec.h2 }}</h2>
+{% for p in sec.body|paragraphs %}<p>{{ p }}</p>{% endfor %}
 {% endfor %}
 {% endmacro %}
 
 {% macro faq(faqs) %}
 {% if faqs %}
-<section class="prose faq">
-  <h2>Frequently asked questions</h2>
-  {% for f in faqs %}
-  <h3>{{ f.q }}</h3>
-  <p>{{ f.a }}</p>
-  {% endfor %}
-</section>
+<h2>Frequently asked questions</h2>
+<div class="faq">
+{% for f in faqs %}
+<h3>{{ f.q }}</h3>
+<p>{{ f.a }}</p>
+{% endfor %}
+</div>
 {% endif %}
 {% endmacro %}

@@ -19,10 +19,12 @@ Your scraper and Sheet 1 are not changed.
 
 | Page | Content comes from | LLM? |
 |---|---|---|
-| Home | templates + DB stats | no |
+| Home | templates + DB data (hero search, cities, top rated, states) | no |
 | Country, State, City | Content CMS sheet, only rows with status **Approved** | yes |
-| Area | DB rows for that area, template heading, meta and short intro, filters | no |
+| Area | DB rows for that area, template H1, meta, short generic intro, filters | no |
 | Restaurant | one DB row, template H1, title, meta, Restaurant schema | no |
+
+**Page layout (country, state, city):** H1, a short generic paragraph (`short_intro`, 4 to 5 lines), browse tiles, top rated restaurants, then the long location text (`intro`, 5 sections, FAQs) at the bottom. Restaurant counts and averages are never shown on the site.
 
 Country/State/City pages with no Approved row are still built (so links work) but are `noindex` and left out of the sitemap. Areas with fewer than `min_area_restaurants` (config.json, default 3) are `noindex` too.
 
@@ -76,11 +78,26 @@ Status values: `Pending` (waiting for text), `Review` (generated, hidden), `Appr
 
 The build refuses to publish if fewer than `MIN_RESTAURANTS` (default 100) rows load, so a sheet caught in the middle of a scraper sync cannot replace the live site with a near-empty one. Avoid scheduling the build while the scraper is syncing.
 
+## Photo recovery (broken images fixed in real time)
+
+Photo links scraped from Google can expire. When an image fails to load, the page asks a small web service for a fresh photo from the restaurant's Google profile (by `place_id`) and swaps it in. Restaurants with no photo at all are looked up the same way when they scroll into view. Results are cached in the visitor's browser for 6 hours and in the service for 6 hours, and the photographer credit Google returns is shown under the gallery.
+
+Set it up once (separate Apps Script project, not the Content CMS sheet):
+
+1. Google Cloud Console: use the project of your service account (or any project), enable **Places API (New)**, and enable billing. Google gives a monthly free usage allowance for Places requests; check the current pricing page, and set a budget alert.
+2. APIs and Services > Credentials > Create API key. Restrict it to **Places API (New)** only.
+3. script.google.com > New project. Paste `apps_script/photo_proxy/Code.gs` and the manifest `apps_script/photo_proxy/appsscript.json` (Project Settings > show appsscript.json).
+4. Project Settings > Script properties: add `PLACES_API_KEY` (your key) and optionally `DAILY_LIMIT` (default 1500 Google calls per day, so cost cannot run away).
+5. Deploy > New deployment > type **Web app**, Execute as **Me**, Who has access **Anyone**. Copy the Web app URL (ends in `/exec`).
+6. GitHub > Settings > Secrets and variables > Actions > Variables > add `PHOTO_API` with that URL, then run the workflow again.
+
+Without `PHOTO_API` the site still works: failed photos show a neutral placeholder with the restaurant's initials. Never put the API key in `config.json` or any file in this repo.
+
 ## Before you go live
 
 * Replace `base_url`, `site_name` and `contact_email` in `config.json` (or use the repo variables above).
 * Read `templates/about.html`, `contact.html` and `privacy.html`. They are generic starting texts; adjust the privacy policy to the ads and analytics you actually use.
-* Photos are hotlinked from Google's image servers. Those URLs can expire and Google's terms limit reuse of Maps content, so check that you are comfortable with that. Cards and galleries hide images that fail to load.
+* Photos are hotlinked from Google's image servers. Those URLs can expire and Google's terms limit reuse of Maps content, so check that you are comfortable with that. Broken photos are replaced automatically, see the next section.
 * Ratings and review counts are shown as "Google Maps rating" text. They are intentionally **not** in the structured data (`aggregateRating`), because Google's rich result rules do not accept ratings copied from another site.
 
 ## Files
@@ -91,8 +108,9 @@ data_sources.py     reads .xlsx or Google Sheets
 utils.py            slugs, image cleaning, text helpers
 config.json         site name, base URL, thresholds, names to skip
 templates/          Jinja templates for every page type
-static/             style.css, site.js (search box, listing filters)
+static/             style.css, site.js (search, listing filters, photo recovery), fonts/ (self-hosted, OFL)
 apps_script/        Code.gs + appsscript.json for the Content CMS sheet
+apps_script/photo_proxy/   web app that fetches fresh Google photos on demand
 sample/             test-only content generator
 ../.github/workflows/claude-website.yml   build + deploy
 ```

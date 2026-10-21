@@ -15,7 +15,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import build  # noqa: E402
 import data_sources  # noqa: E402
 
-HEAD = ["path", "name", "level", "status", "h1", "meta_title", "meta_description", "intro"]
+HEAD = ["path", "name", "level", "status", "h1", "meta_title", "meta_description", "short_intro", "intro"]
 for i in range(1, 6):
     HEAD += [f"s{i}_h2", f"s{i}_body"]
 for i in range(1, 6):
@@ -23,17 +23,18 @@ for i in range(1, 6):
 
 
 def row(node, level):
-    cu = ", ".join(f"{n} ({c})" for n, c in node.cuisines[:5]) or "a mix of cuisines"
+    cu = ", ".join(n for n, c in node.cuisines[:5]) or "a mix of cuisines"
     top = ", ".join(r["name"] for r in node.top[:5])
     r = {"path": node.path, "name": node.name, "level": level, "status": "Approved",
-         "h1": f"Restaurants in {node.name}",
+         "h1": f"Best Restaurants in {node.name}",
          "meta_title": f"Restaurants in {node.name}: Top Places to Eat | Restro Guide"[:60],
-         "meta_description": f"Browse {node.count} restaurants in {node.name}, with top cuisines, ratings and areas to explore."[:155],
-         "intro": f"[SAMPLE TEXT FOR LAYOUT TESTING] {node.name} has {node.count} restaurants listed.\n\nCommon cuisines: {cu}."}
+         "meta_description": f"Find the best restaurants in {node.name}. Browse top rated places, cuisines, ratings and areas to explore."[:155],
+         "short_intro": f"[SAMPLE] Looking for the best restaurants in {node.name}? Browse top rated places to eat, compare ratings and cuisines, and open any listing for the address, phone number and directions.",
+         "intro": f"[SAMPLE TEXT FOR LAYOUT TESTING] Eating out in {node.name} covers {cu}.\n\nSecond placeholder paragraph."}
     heads = ["What the dining scene looks like", "Popular cuisines", "Top rated places", "How to choose", "Planning your visit"]
     for i, h in enumerate(heads, 1):
         r[f"s{i}_h2"] = h
-        r[f"s{i}_body"] = f"[SAMPLE] {h} in {node.name}. Highly rated listings include {top}.\n\nSecond placeholder paragraph."
+        r[f"s{i}_body"] = f"[SAMPLE] {h} in {node.name}. Highly rated places include {top}.\n\nSecond placeholder paragraph."
     for i in range(1, 6):
         r[f"faq{i}_q"] = f"Sample question {i} about restaurants in {node.name}?"
         r[f"faq{i}_a"] = f"Sample answer {i}."

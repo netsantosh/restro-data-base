@@ -12,6 +12,7 @@ Live (Google Sheets, used by the GitHub Action):
         --db gsheet:<DB_SHEET_ID> --content gsheet:<CONTENT_SHEET_ID>
 """
 import argparse
+import hashlib
 import json
 import os
 import re
@@ -25,8 +26,8 @@ from xml.sax.saxutils import escape as xml_escape
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 
 import data_sources
-from utils import (clean_image, clip, fit, km_between, paragraphs, s, slugify,
-                   tel_href, thumb, to_float, to_int)
+from utils import (clean_image, clip, cuisine_phrase, first_words, fit, initials, km_between,
+                   paragraphs, s, slugify, tel_href, thumb, to_float, to_int)
 
 ROOT = Path(__file__).resolve().parent
 GENERIC_CUISINES = {"", "restaurant"}
@@ -40,9 +41,11 @@ MAX_FAQS = 8
 def load_config():
     cfg = json.loads((ROOT / "config.json").read_text(encoding="utf-8"))
     for env, key in (("SITE_URL", "base_url"), ("BASE_PATH", "base_path"),
-                     ("SITE_NAME", "site_name"), ("CONTACT_EMAIL", "contact_email")):
+                     ("SITE_NAME", "site_name"), ("CONTACT_EMAIL", "contact_email"),
+                     ("PHOTO_API", "photo_api")):
         if os.environ.get(env, "").strip():
             cfg[key] = os.environ[env].strip()
+    cfg.setdefault("photo_api", "")
     cfg["base_url"] = cfg["base_url"].rstrip("/")
     bp = cfg.get("base_path", "").strip().strip("/")
     cfg["base_path"] = f"/{bp}" if bp else ""
@@ -210,6 +213,7 @@ def load_content(tables, include_review, report):
             content[path] = {
                 "level": level, "h1": s(rec.get("h1")), "meta_title": s(rec.get("meta_title")),
                 "meta_description": s(rec.get("meta_description")), "intro": s(rec.get("intro")),
+                "short_intro": s(rec.get("short_intro")),
                 "sections": sections, "faqs": faqs, "words": words,
             }
     return content
@@ -226,7 +230,7 @@ class Site:
                                autoescape=select_autoescape(["html"]),
                                trim_blocks=True, lstrip_blocks=True)
         self.env.filters["paragraphs"] = paragraphs
-        self.env.globals.update(thumb=thumb, site=cfg, u=self.u, asset=self.asset,
+        self.env.globals.update(thumb=thumb, initials=initials, site=cfg, u=self.u, asset=self.asset,
                                 year=datetime.now().year)
 
     def u(self, path=""):
@@ -282,65 +286,104 @@ def decorate(site, r):
     return r
 
 
-def place_fallback(node):
-    kids = {"country": ("state", "states"), "state": ("city", "cities"), "city": ("area", "areas")}[node.kind]
-    n_kids = len(node.children)
-    top = ", ".join(f"{c} ({n})" for c, n in node.cuisines[:4])
-    intro = (f"{node.name} has {node.count:,} restaurants listed across {n_kids} {kids[1]}."
-             + (f" The average Google Maps rating is {node.avg}." if node.avg else "")
-             + (f" Most common cuisines: {top}." if top else ""))
-    return intro
+
+def pick(path, options):
+    """Deterministic variant per page so wording differs between pages but never changes between builds."""
+    return options[int(hashlib.md5(path.encode()).hexdigest(), 16) % len(options)]
+
+
+INTRO_VARIANTS = {
+    "area": [
+        "Looking for the best restaurants in {place}? Browse top rated places to eat, from casual cafes and family "
+        "restaurants to special-occasion dining. Compare Google Maps ratings, check addresses and phone numbers, and "
+        "look through photos before you decide. {cuisines}Use the filters to narrow by cuisine or rating.",
+        "Planning a meal in {place}? This guide lists restaurants in the area with their cuisine, rating, address and "
+        "contact details, so you can compare options quickly. Whether you want a quick bite, a family dinner or "
+        "something special, start with the top rated places below. {cuisines}",
+        "Find the best restaurants in {place} in one place. Every listing shows the Google Maps rating, cuisine type, "
+        "address and phone number, with photos where available. Sort by rating or reviews, filter by cuisine, and "
+        "open a listing for directions. {cuisines}",
+    ],
+    "city": [
+        "Looking for the best restaurants in {place}? Explore top rated places to eat across every area of the city, "
+        "from neighbourhood favourites to popular dining spots. Pick an area to see its restaurants, or start with "
+        "the highest rated listings below. {cuisines}",
+        "Discover where to eat in {place}. Browse restaurants area by area, compare Google Maps ratings and "
+        "cuisines, and open any listing for the address, phone number, photos and directions. Start with the top "
+        "rated places or choose your neighbourhood. {cuisines}",
+    ],
+    "state": [
+        "Looking for the best restaurants in {place}? Browse places to eat city by city, compare Google Maps ratings "
+        "and cuisines, and find top rated restaurants near you. Pick a city below or start with the highest rated "
+        "listings across the state. {cuisines}",
+        "Find where to eat in {place}. Choose a city to explore its restaurants by area, compare ratings and "
+        "cuisines, and check addresses, phone numbers and photos before you go. {cuisines}",
+    ],
+    "country": [
+        "Find the best restaurants in {place}, city by city. Choose a state or city to browse restaurants by area, "
+        "compare Google Maps ratings and cuisines, and check addresses, phone numbers and photos before you go. "
+        "Start with the top rated places below. {cuisines}",
+    ],
+}
+
+
+def place_label(node):
+    return f"{node.name}, {node.parent.name}" if node.kind == "area" else node.name
+
+
+def generic_intro(node):
+    cuisines = cuisine_phrase([c for c, _ in node.cuisines[:3]])
+    text = pick(node.path, INTRO_VARIANTS[node.kind]).format(place=place_label(node), cuisines=(cuisines + " ") if cuisines else "")
+    return re.sub(r"\s+", " ", text).strip()
+
+
+def generic_desc(node):
+    return clip(f"Find the best restaurants in {place_label(node)}. Browse top rated places, cuisines, Google Maps "
+                "ratings, addresses, phone numbers and photos.", 155)
+
 
 
 def render_place(site, node, content, report):
     c = content.get(node.path)
     kind = node.kind
-    child_kind = {"country": "state", "state": "city", "city": "area"}[kind]
+    name, sname = node.name, site.cfg["site_name"]
     children = sorted(node.children.values(), key=lambda n: -n.count)
-    child_links = [{"name": ch.name, "href": site.u(ch.path), "count": ch.count} for ch in children]
+    tiles = [{"name": ch.name, "href": site.u(ch.path), "sub": ""} for ch in children]
+    heading = {"country": f"Browse by state in {name}", "state": f"Browse by city in {name}",
+               "city": f"Browse by area in {name}"}[kind]
+    secondary = None
     if kind == "country":
-        h1 = (c and c["h1"]) or f"Restaurants in {node.name}"
-        top_heading = f"Top rated restaurants in {node.name}"
-        children_heading = f"Browse restaurants by state in {node.name}"
-        cities = sorted((ct for st in node.children.values() for ct in st.children.values()),
-                        key=lambda n: -n.count)[:12]
-        secondary = {"heading": f"Popular cities in {node.name}",
-                     "links": [{"name": ct.name, "href": site.u(ct.path), "count": ct.count} for ct in cities]}
-        title_c = [f"Restaurants in {node.name}: Cities, Areas & Top Places | {site.cfg['site_name']}",
-                   f"Restaurants in {node.name} | {site.cfg['site_name']}", f"Restaurants in {node.name}"]
-    elif kind == "state":
-        h1 = (c and c["h1"]) or f"Restaurants in {node.name}"
-        top_heading = f"Top rated restaurants in {node.name}"
-        children_heading = f"Browse restaurants by city in {node.name}"
-        secondary = None
-        title_c = [f"Restaurants in {node.name}: Top Cities & Places to Eat | {site.cfg['site_name']}",
-                   f"Restaurants in {node.name} | {site.cfg['site_name']}", f"Restaurants in {node.name}"]
+        cities = sorted((ct for st in node.children.values() for ct in st.children.values()), key=lambda n: -n.count)[:12]
+        secondary = {"heading": f"Popular cities in {name}",
+                     "tiles": [{"name": ct.name, "href": site.u(ct.path), "sub": ct.parent.name} for ct in cities]}
+    h1 = (c and c["h1"]) or f"Best Restaurants in {name}"
+    title = (c and c["meta_title"]) or fit([f"Best Restaurants in {name} | {sname}", f"Restaurants in {name} | {sname}",
+                                             f"Restaurants in {name}"], 60)
+    desc = (c and c["meta_description"]) or generic_desc(node)
+    # layout: short generic paragraph under the H1, long location text at the bottom
+    paras = paragraphs(c["intro"]) if c else []
+    if c and c["short_intro"]:
+        top_intro, bottom_intro = c["short_intro"], paras
+    elif paras:
+        top_intro, bottom_intro = paras[0], paras[1:]
     else:
-        h1 = (c and c["h1"]) or f"Restaurants in {node.name}"
-        top_heading = f"Top rated restaurants in {node.name}"
-        children_heading = f"Browse restaurants by area in {node.name}"
-        secondary = None
-        title_c = [f"Restaurants in {node.name}: Top Areas & Places to Eat | {site.cfg['site_name']}",
-                   f"Restaurants in {node.name} | {site.cfg['site_name']}", f"Restaurants in {node.name}"]
-    title = (c and c["meta_title"]) or fit(title_c, 60)
-    desc = (c and c["meta_description"]) or clip(place_fallback(node), 155)
+        top_intro, bottom_intro = generic_intro(node), []
     crumbs = crumbs_for(site, node)
     schema = [finalize_breadcrumb_schema(breadcrumb_schema(site, crumbs), site.canonical(node.path))]
     if c and c["faqs"]:
         schema.append(faq_schema(c["faqs"]))
-    indexable = bool(c)
     if not c:
         report["pages_without_content"].append(node.path)
     elif c["words"] < 600:
         report["short_content"].append(f"{node.path}: {c['words']} words")
     if c and len(title) > 65:
         report["long_titles"].append(f"{node.path}: {len(title)} chars")
-    site.write(node.path, "place.html", indexable=indexable, lastmod=node.lastmod,
-               title=title, description=desc, schema=schema, crumbs=crumbs, node=node, h1=h1,
-               intro=(c and c["intro"]) or place_fallback(node), sections=(c and c["sections"]) or [],
-               faqs=(c and c["faqs"]) or [], children=child_links, children_heading=children_heading,
-               child_kind=child_kind, top=[decorate(site, r) for r in node.top], top_heading=top_heading,
-               secondary=secondary, cuisines=node.cuisines, og_type="website")
+    site.write(node.path, "place.html", indexable=bool(c), lastmod=node.lastmod, title=title, description=desc,
+               schema=schema, crumbs=crumbs, node=node, h1=h1, top_intro=top_intro, bottom_intro=bottom_intro,
+               sections=(c and c["sections"]) or [], faqs=(c and c["faqs"]) or [], tiles=tiles, tiles_heading=heading,
+               secondary=secondary, top=[decorate(site, r) for r in node.top],
+               top_heading=f"Top rated restaurants in {name}", og_type="website")
+
 
 
 def render_area(site, area, report):
@@ -351,36 +394,26 @@ def render_area(site, area, report):
     rs = sorted(area.restaurants, key=lambda r: r["score"], reverse=True)
     for r in rs:
         decorate(site, r)
-    cuis = ", ".join(f"{c} ({n})" for c, n in area.cuisines[:4])
-    intro = (f"{area.name} in {city.name}, {state.name} has {area.count} restaurants listed on this guide"
-             + (f", with an average Google Maps rating of {area.avg}" if area.avg else "")
-             + "." + (f" The most common cuisines here are {cuis}." if cuis else "")
-             + f" Use the filters to narrow by cuisine or rating.")
-    cands = [f"Restaurants in {area.name}, {city.name} ({area.count}) | {site.cfg['site_name']}",
-             f"Restaurants in {area.name}, {city.name} | {site.cfg['site_name']}",
-             f"Restaurants in {area.name}, {city.name}"]
-    title = fit(cands, 60)
-    desc = clip(f"Find {area.count} restaurants in {area.name}, {city.name}"
-                + (f" rated {area.avg} on average" if area.avg else "")
-                + (f", including {', '.join(r['name'] for r in rs[:3])}" if rs else "")
-                + ". Browse cuisines, ratings, addresses and photos.", 155)
+    sname = site.cfg["site_name"]
+    title = fit([f"Best Restaurants in {area.name}, {city.name} | {sname}", f"Restaurants in {area.name}, {city.name} | {sname}",
+                 f"Restaurants in {area.name}, {city.name}"], 60)
+    desc = generic_desc(area)
     nearby = [a for a in city.children.values() if a is not area and a.count]
     if area.center:
         nearby = [a for a in nearby if a.center]
         nearby.sort(key=lambda a: km_between(*area.center, *a.center))
     else:
         nearby.sort(key=lambda a: -a.count)
-    nearby = nearby[:10]
     crumbs = crumbs_for(site, area)
     schema = [finalize_breadcrumb_schema(breadcrumb_schema(site, crumbs), site.canonical(area.path))]
     schema.append({"@context": "https://schema.org", "@type": "ItemList", "name": f"Restaurants in {area.name}, {city.name}",
-                   "numberOfItems": len(rs), "itemListElement": [
-                       {"@type": "ListItem", "position": i + 1, "url": site.cfg["base_url"] + r["href"], "name": r["name"]}
-                       for i, r in enumerate(rs[:50])]})
+                   "itemListElement": [{"@type": "ListItem", "position": i + 1, "url": site.cfg["base_url"] + r["href"],
+                                        "name": r["name"]} for i, r in enumerate(rs[:50])]})
     site.write(area.path, "area.html", indexable=indexable, lastmod=area.lastmod, title=title, description=desc,
-               schema=schema, crumbs=crumbs, node=area, city=city, state=state, h1=f"Restaurants in {area.name}, {city.name}",
-               intro=intro, restaurants=rs, cuisines=[c for c, _ in area.cuisines],
-               nearby=[{"name": a.name, "href": site.u(a.path), "count": a.count} for a in nearby], og_type="website")
+               schema=schema, crumbs=crumbs, node=area, city=city, state=state,
+               h1=f"Best Restaurants in {area.name}, {city.name}", intro=generic_intro(area), restaurants=rs,
+               cuisines=[c for c, _ in area.cuisines],
+               nearby=[{"name": a.name, "href": site.u(a.path), "sub": ""} for a in nearby[:12]], og_type="website")
 
 
 def render_restaurant(site, r, report):
@@ -403,6 +436,8 @@ def render_restaurant(site, r, report):
                         if x is not r and x["cuisine_short"] == r["cuisine_short"] and x not in related_area][:6]
     for x in related_area + same_cuisine:
         decorate(site, x)
+    r["directions"] = (f"https://www.google.com/maps/dir/?api=1&destination={r['lat']},{r['lon']}"
+                       f"&destination_place_id={r['place_id']}") if r["lat"] is not None and r["lon"] is not None else r["google_maps_link"]
     page_url = site.canonical(r["path"])
     schema = [finalize_breadcrumb_schema(breadcrumb_schema(site, crumbs), page_url)]
     ld = {"@context": "https://schema.org", "@type": "Restaurant", "name": r["name"], "url": page_url,
@@ -429,23 +464,27 @@ def render_restaurant(site, r, report):
                og_image=thumb(r["photos"][0], 1200, 630) if r["photos"] else "")
 
 
+
 def render_home(site, root, all_rest):
     countries = sorted(root.children.values(), key=lambda n: -n.count)
-    cities = sorted((ct for c in countries for st in c.children.values() for ct in st.children.values()),
-                    key=lambda n: -n.count)[:12]
-    n_areas = sum(len(ct.children) for c in countries for st in c.children.values() for ct in st.children.values())
-    top = sorted(all_rest, key=lambda r: r["score"], reverse=True)[:12]
+    all_cities = sorted((ct for c in countries for st in c.children.values() for ct in st.children.values()),
+                        key=lambda n: -n.count)
+    all_states = sorted((st for c in countries for st in c.children.values()), key=lambda n: -n.count)
+    top = sorted(all_rest, key=lambda r: r["score"], reverse=True)[:8]
     names = " and ".join(c.name for c in countries[:2])
-    title = fit([f"Find Restaurants in {names} | {site.cfg['site_name']}", f"{site.cfg['site_name']}: Find Restaurants"], 60)
-    desc = clip(f"Browse {len(all_rest):,} restaurants across {n_areas} areas in {names}. "
-                "Filter by city, area, cuisine and Google Maps rating, with addresses, phone numbers and photos.", 155)
-    schema = [{"@context": "https://schema.org", "@type": "WebSite", "name": site.cfg["site_name"],
-               "url": site.canonical("")}]
+    sname = site.cfg["site_name"]
+    title = fit([f"Best Restaurants in {names} | {sname}", f"{sname}: Find Restaurants in {names}", sname], 60)
+    desc = clip(f"Find the best restaurants in {names}. Browse by city and area, compare Google Maps ratings and "
+                "cuisines, and get addresses, phone numbers, photos and directions.", 155)
+    schema = [{"@context": "https://schema.org", "@type": "WebSite", "name": sname, "url": site.canonical(""),
+               "potentialAction": {"@type": "SearchAction", "target": site.canonical("") + "?q={search_term_string}",
+                                   "query-input": "required name=search_term_string"}}]
     site.write("", "home.html", indexable=True, lastmod=max((r["scraped_at"][:10] for r in all_rest), default=""),
-               title=title, description=desc, schema=schema, countries=[
-                   {"name": c.name, "href": site.u(c.path), "count": c.count} for c in countries],
-               cities=[{"name": ct.name, "href": site.u(ct.path), "count": ct.count, "state": ct.parent.name} for ct in cities],
-               top=[decorate(site, r) for r in top], total=len(all_rest), n_areas=n_areas, og_type="website")
+               title=title, description=desc, schema=schema, country_names=names,
+               hero_cities=[{"name": ct.name, "href": site.u(ct.path)} for ct in all_cities[:6]],
+               city_tiles=[{"name": ct.name, "href": site.u(ct.path), "sub": ct.parent.name} for ct in all_cities[:12]],
+               state_tiles=[{"name": st.name, "href": site.u(st.path), "sub": st.parent.name} for st in all_states],
+               top=[decorate(site, r) for r in top], og_type="website")
 
 
 STATIC_PAGES = {
@@ -535,6 +574,13 @@ def main():
     (out / ".nojekyll").write_text("", encoding="utf-8")
 
     site = Site(cfg, out)
+    nav = defaultdict(list)
+    for n in walk(root):
+        if n.kind == "city":
+            nav[n.parent.name].append({"name": n.name, "href": site.u(n.path)})
+    site.env.globals["nav_states"] = [{"name": k, "cities": sorted(v, key=lambda x: x["name"])} for k, v in sorted(nav.items())]
+    site.env.globals["footer_cities"] = [{"name": n.name, "href": site.u(n.path)} for n in sorted(
+        (n for n in walk(root) if n.kind == "city"), key=lambda n: -n.count)[:8]]
     for n in walk(root):
         if n.kind in ("country", "state", "city"):
             render_place(site, n, content, report)
