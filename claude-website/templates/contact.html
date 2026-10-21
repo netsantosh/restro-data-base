@@ -1,0 +1,9 @@
+{% extends "base.html" %}
+{% import "macros.html" as m %}
+{% block main %}
+{{ m.breadcrumbs(crumbs) }}
+<h1>Contact</h1>
+<div class="prose">
+<p>To report a correction, a closed restaurant, or a request to remove a listing, email <a href="mailto:{{ site.contact_email }}">{{ site.contact_email }}</a>. Please include the address of the page you are writing about.</p>
+</div>
+{% endblock %}

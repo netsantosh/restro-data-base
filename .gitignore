@@ -1,0 +1,13 @@
+# secrets and local data (never commit)
+restro-database-*.json
+service-account*.json
+.env
+*.xlsx
+*.lock
+maps_scraper_log.txt
+.venv/
+__pycache__/
+
+# website build output
+claude-website/dist/
+claude-website/build_report.json
