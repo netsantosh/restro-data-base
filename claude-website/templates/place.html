@@ -1,45 +1,39 @@
 {% extends "base.html" %}
 {% import "macros.html" as m %}
 {% block main %}
-{{ m.breadcrumbs(crumbs) }}
-<h1>{{ h1 }}</h1>
-<div class="intro">
-{% for p in intro|paragraphs %}<p>{{ p }}</p>{% endfor %}
+<div class="wrap">
+  <header class="page-head">
+    {{ m.breadcrumbs(crumbs) }}
+    <h1>{{ h1 }}</h1>
+    <p class="lede">{{ top_intro }}</p>
+  </header>
+
+  <section class="block">
+    <h2>{{ tiles_heading }}</h2>
+    {{ m.tiles(tiles) }}
+  </section>
+
+  {% if secondary %}
+  <section class="block">
+    <h2>{{ secondary.heading }}</h2>
+    {{ m.tiles(secondary.tiles) }}
+  </section>
+  {% endif %}
+
+  <section class="block">
+    <h2>{{ top_heading }}</h2>
+    <div class="grid">{% for r in top %}{{ m.card(r) }}{% endfor %}</div>
+  </section>
+
+  {% if bottom_intro or sections or faqs %}
+  <section class="article">
+    {% if bottom_intro %}
+    <h2>About restaurants in {{ node.name }}</h2>
+    {% for p in bottom_intro %}<p>{{ p }}</p>{% endfor %}
+    {% endif %}
+    {{ m.prose(sections) }}
+    {{ m.faq(faqs) }}
+  </section>
+  {% endif %}
 </div>
-<ul class="stats">
-  <li><strong>{{ '{:,}'.format(node.count) }}</strong> restaurants</li>
-  <li><strong>{{ node.children|length }}</strong> {{ 'areas' if child_kind == 'area' else ('cities' if child_kind == 'city' else 'states') }}</li>
-  {% if node.avg %}<li><strong>{{ node.avg }}</strong> average rating</li>{% endif %}
-</ul>
-
-<section>
-  <h2>{{ children_heading }}</h2>
-  {{ m.linklist(children) }}
-</section>
-
-{% if secondary %}
-<section>
-  <h2>{{ secondary.heading }}</h2>
-  {{ m.linklist(secondary.links) }}
-</section>
-{% endif %}
-
-<section>
-  <h2>{{ top_heading }}</h2>
-  <div class="grid">
-  {% for r in top %}{{ m.card(r) }}{% endfor %}
-  </div>
-</section>
-
-{% if cuisines %}
-<section>
-  <h2>Popular cuisines</h2>
-  <ul class="chips">
-  {% for name, n in cuisines %}<li>{{ name }} <span class="count">{{ '{:,}'.format(n) }}</span></li>{% endfor %}
-  </ul>
-</section>
-{% endif %}
-
-{{ m.prose(sections) }}
-{{ m.faq(faqs) }}
 {% endblock %}

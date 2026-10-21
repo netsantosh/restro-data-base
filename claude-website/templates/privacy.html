@@ -1,9 +1,10 @@
 {% extends "base.html" %}
 {% import "macros.html" as m %}
 {% block main %}
+<div class="wrap narrow">
 {{ m.breadcrumbs(crumbs) }}
 <h1>Privacy Policy</h1>
-<div class="prose">
+<div class="article">
 <p>This page explains what information {{ site.site_name }} handles when you visit the site.</p>
 <h2>Information we collect</h2>
 <p>We do not ask you to create an account or submit personal details to browse the site. Our servers and hosting provider may log technical data such as your IP address, browser type and the pages you open.</p>
@@ -13,5 +14,6 @@
 <p>Pages link to Google Maps and to restaurant websites. We do not control those sites and their privacy practices apply when you visit them.</p>
 <h2>Contact</h2>
 <p>For privacy questions, email <a href="mailto:{{ site.contact_email }}">{{ site.contact_email }}</a>.</p>
+</div>
 </div>
 {% endblock %}

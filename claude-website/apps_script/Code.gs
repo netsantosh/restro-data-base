@@ -17,7 +17,7 @@ var TABS = { Country: 'country', State: 'state', City: 'city' };
 var STATUSES = ['Pending', 'Review', 'Approved', 'Hold'];
 var FACT_COLS = ['restaurant_count', 'child_count', 'avg_rating', 'top_cuisines', 'top_rated', 'children'];
 var EDIT_COLS = ['local_notes', 'baseline_count', 'refresh_flag', 'generated_at', 'notes'];
-var CONTENT_COLS = ['h1', 'meta_title', 'meta_description', 'intro'];
+var CONTENT_COLS = ['h1', 'meta_title', 'meta_description', 'short_intro', 'intro'];
 for (var i = 1; i <= 5; i++) { CONTENT_COLS.push('s' + i + '_h2', 's' + i + '_body'); }
 for (var j = 1; j <= 5; j++) { CONTENT_COLS.push('faq' + j + '_q', 'faq' + j + '_a'); }
 var HEAD = ['path', 'name', 'level', 'status'].concat(FACT_COLS, EDIT_COLS, CONTENT_COLS);
@@ -329,7 +329,8 @@ function generateRow_(sh, rowNum, values, cfg) {
   if (unverified.length) { notes.push('Numbers not in the data (verify): ' + unverified.join(', ')); }
   notes.push('Words: ' + wordCount_(result));
   var out = {};
-  out.h1 = result.h1; out.meta_title = result.meta_title; out.meta_description = result.meta_description; out.intro = result.intro;
+  out.h1 = result.h1; out.meta_title = result.meta_title; out.meta_description = result.meta_description;
+  out.short_intro = result.short_intro; out.intro = result.intro;
   for (var k = 0; k < 5; k++) {
     var s = (result.sections || [])[k] || {};
     out['s' + (k + 1) + '_h2'] = s.h2 || ''; out['s' + (k + 1) + '_body'] = s.body || '';
@@ -347,10 +348,17 @@ function generateRow_(sh, rowNum, values, cfg) {
 
 /* ------------------------------------------------------------- prompts */
 
+/** Facts for the prompt carry names only: no restaurant counts, ratings or review numbers. */
+function stripNumbers_(text) {
+  return String(text || '')
+    .replace(/,\s*rated [^;]*/g, '')        // "X in Y, rated 4.9 from 1,292 reviews" -> "X in Y"
+    .replace(/\s*\(\d[\d,]*\)/g, '')         // "North Indian (115)" -> "North Indian"
+    .trim();
+}
+
 function buildPrompt_(level, get, cfg, target) {
   var name = get('name');
   var childWord = { country: 'states', state: 'cities', city: 'areas' }[level];
-  var introWords = '100 to 130';
   var secWords = Math.round((target - 115) / 5);
   var outline = {
     country: ['What the restaurant scene looks like in ' + name, 'States to explore for food', 'Popular cuisines across ' + name, 'Highest rated places on our list', 'How to pick a restaurant in ' + name],
@@ -362,27 +370,26 @@ function buildPrompt_(level, get, cfg, target) {
     'You write SEO content for a restaurant directory website. Write the page text for the ' + level + ' page "' + name + '".',
     '',
     'FACTS (the only source of truth, from our database of Google Maps listings):',
-    '- Restaurants listed: ' + get('restaurant_count'),
-    '- Number of ' + childWord + ' covered: ' + get('child_count'),
-    '- Average Google Maps rating: ' + get('avg_rating'),
-    '- Most common cuisines (count): ' + get('top_cuisines'),
-    '- Highest rated places: ' + get('top_rated'),
-    '- Biggest ' + childWord + ' by restaurant count: ' + get('children'),
+    '- Most common cuisines, most common first: ' + stripNumbers_(get('top_cuisines')),
+    '- Highest rated places on our list: ' + stripNumbers_(get('top_rated')),
+    '- Main ' + childWord + ', largest first: ' + stripNumbers_(get('children')),
     notes ? '- Verified editor notes you may use: ' + notes : '',
     '',
     'RULES:',
-    '- Use ONLY the facts above. Do not invent numbers, restaurant names, landmarks, history, prices, opening hours, awards or opinions. If a number is not in the facts, do not write it.',
+    '- Use ONLY the facts above. Do not invent restaurant names, landmarks, history, prices, opening hours, awards or opinions.',
+    '- Never say how many restaurants are listed. Do not give ratings, review counts, percentages or any other number. Do not write digits at all.',
     '- You may mention restaurant names, ' + childWord + ' and cuisines from the facts, and naturally link ideas between them.',
-    '- Avoid superlatives such as "best" or "must visit" unless phrased as "highest rated on our list". Do not promise quality.',
-    '- Plain, useful English for people choosing where to eat. No hype, no filler, no marketing clichés. Do not use em dashes.',
-    '- Every section must say something different. Do not repeat sentences or phrases across sections.',
+    '- Avoid hype and unprovable claims. "Highest rated on our list" is fine, "the best in town" is not.',
+    '- Plain, useful English for people choosing where to eat. No filler, no marketing cliches. Do not use em dashes.',
+    '- Every section must say something different. Do not repeat sentences or phrases across sections or between short_intro and intro.',
     '- Mention that ratings come from Google Maps listings where it is natural.',
     '',
     'OUTPUT: return ONLY a JSON object with these keys:',
-    '- "h1": H1 containing the keyword "Restaurants in ' + name + '"',
+    '- "h1": "Best Restaurants in ' + name + '"',
     '- "meta_title": 60 characters or fewer, include "Restaurants in ' + name + '"',
-    '- "meta_description": 130 to 155 characters, specific, includes the restaurant count',
-    '- "intro": ' + introWords + ' words, 1 or 2 paragraphs separated by a blank line (use \\n\\n)',
+    '- "meta_description": 130 to 155 characters, specific, no digits',
+    '- "short_intro": 45 to 60 words (4 to 5 lines on screen), generic and genuinely useful, shown right under the H1. Start with a natural question or statement about the best restaurants in ' + name + ', say what visitors can find here (kinds of cuisine, areas to explore, how to use the page). No restaurant names, no numbers.',
+    '- "intro": 100 to 130 words, 1 or 2 paragraphs separated by a blank line (use \\n\\n). This is the start of the long text shown at the bottom of the page.',
     '- "sections": array of exactly 5 objects {"h2","body"}, each body about ' + secWords + ' words in 1 or 2 paragraphs. Use these H2s, you may adjust wording slightly: ' + JSON.stringify(outline),
     '- "faqs": array of exactly 5 objects {"q","a"}. Questions people really search for about restaurants in ' + name + '. Each answer 35 to 60 words, only from the facts.',
     'Total words in intro plus sections must be about ' + target + '.'
@@ -429,7 +436,7 @@ function testGemini() {
 
 function cleanText_(o) {
   var fix = function (t) { return String(t || '').replace(/\s*[—–]\s*/g, ', ').replace(/[ \t]+\n/g, '\n').trim(); };
-  var out = { h1: fix(o.h1), meta_title: fix(o.meta_title), meta_description: fix(o.meta_description), intro: fix(o.intro), sections: [], faqs: [] };
+  var out = { h1: fix(o.h1), meta_title: fix(o.meta_title), meta_description: fix(o.meta_description), short_intro: fix(o.short_intro), intro: fix(o.intro), sections: [], faqs: [] };
   (o.sections || []).forEach(function (s) { out.sections.push({ h2: fix(s.h2), body: fix(s.body) }); });
   (o.faqs || []).forEach(function (f) { out.faqs.push({ q: fix(f.q), a: fix(f.a) }); });
   return out;
@@ -446,6 +453,12 @@ function validate_(o, target) {
   if (!o.meta_title || o.meta_title.length > 60) { p.push('meta_title must be 60 characters or fewer (now ' + (o.meta_title || '').length + ')'); }
   if (!o.meta_description || o.meta_description.length > 155 || o.meta_description.length < 110) { p.push('meta_description must be 110 to 155 characters (now ' + (o.meta_description || '').length + ')'); }
   if (!o.intro) { p.push('intro missing'); }
+  var si = String(o.short_intro || '').split(/\s+/).filter(Boolean).length;
+  if (si < 35 || si > 75) { p.push('short_intro must be 45 to 60 words (now ' + si + ')'); }
+  var allText = [o.h1, o.meta_title, o.meta_description, o.short_intro, o.intro].concat(
+    (o.sections || []).map(function (s) { return s.h2 + ' ' + s.body; }),
+    (o.faqs || []).map(function (f) { return f.q + ' ' + f.a; })).join(' ');
+  if (/\d/.test(allText)) { p.push('contains digits; remove every number (restaurant counts and ratings must not appear)'); }
   if ((o.sections || []).length !== 5) { p.push('need exactly 5 sections'); }
   if ((o.faqs || []).length !== 5) { p.push('need exactly 5 faqs'); }
   var words = wordCount_(o);

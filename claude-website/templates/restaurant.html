@@ -1,49 +1,62 @@
 {% extends "base.html" %}
 {% import "macros.html" as m %}
 {% block main %}
-{{ m.breadcrumbs(crumbs) }}
-<h1>{{ r.name }}, {{ r.area }}, {{ r.city }}</h1>
-<p class="lead">{{ r.cuisine_short or 'Restaurant' }} in {{ r.area }}, {{ r.city }}{% if r.rating %} · <span class="rate">★ {{ r.rating }}</span> on Google Maps{% if r.reviews %} ({{ '{:,}'.format(r.reviews) }} reviews){% endif %}{% endif %}</p>
-
-<div class="detail">
-  <section>
-    <h2>Details</h2>
-    <dl class="facts">
-      <dt>Address</dt><dd>{{ r.address }}</dd>
-      {% if r.phone %}<dt>Phone</dt><dd><a href="tel:{{ r.tel }}">{{ r.phone }}</a></dd>{% endif %}
-      {% if r.website %}<dt>Website</dt><dd><a href="{{ r.website }}" rel="nofollow noopener" target="_blank">{{ r.website|replace('https://','')|replace('http://','')|trim('/') }}</a></dd>{% endif %}
-      {% if r.cuisine_type %}<dt>Type</dt><dd>{{ r.cuisine_type }}</dd>{% endif %}
-      {% if r.price %}<dt>Price</dt><dd>{{ r.price }}</dd>{% endif %}
-      {% if r.rating %}<dt>Rating</dt><dd>{{ r.rating }} out of 5{% if r.reviews %} from {{ '{:,}'.format(r.reviews) }} Google reviews{% endif %}</dd>{% endif %}
-      <dt>Area</dt><dd><a href="{{ u(area.path) }}">{{ r.area }}</a>, <a href="{{ u(city.path) }}">{{ r.city }}</a>, <a href="{{ u(state.path) }}">{{ r.state }}</a></dd>
-    </dl>
-    {% if r.maps_link or r.google_maps_link %}
-    <p><a class="btn" href="{{ r.google_maps_link }}" rel="nofollow noopener" target="_blank">Open in Google Maps</a></p>
+<div class="wrap">
+  <header class="page-head rest-head">
+    {{ m.breadcrumbs(crumbs) }}
+    <h1>{{ r.name }}</h1>
+    <p class="sub">{{ r.cuisine_short or 'Restaurant' }}{% if r.price %} · {{ r.price }}{% endif %} · <a href="{{ u(area.path) }}">{{ r.area }}</a>, <a href="{{ u(city.path) }}">{{ r.city }}</a></p>
+    {% if r.rating %}
+    <p class="rating-row"><span class="pill"><span aria-hidden="true">★</span> {{ r.rating }}</span>{% if r.reviews %}<span>{{ '{:,}'.format(r.reviews) }} Google reviews</span>{% else %}<span>Google Maps rating</span>{% endif %}</p>
     {% endif %}
-  </section>
-  {% if r.photos %}
-  <section class="photos">
-    <h2>Photos</h2>
-    <div class="gallery">
-    {% for p in r.photos[:6] %}
-      <img src="{{ thumb(p, 800, 600) if loop.first else thumb(p, 400, 300) }}" alt="{{ r.name }}, {{ r.area }}, {{ r.city }}: photo {{ loop.index }}" loading="{{ 'eager' if loop.first else 'lazy' }}" referrerpolicy="no-referrer" width="{{ 800 if loop.first else 400 }}" height="{{ 600 if loop.first else 300 }}" onerror="this.remove()">
+    <p class="actions">
+      {% if r.tel %}<a class="btn btn-dark" href="tel:{{ r.tel }}">Call</a>{% endif %}
+      {% if r.directions %}<a class="btn" href="{{ r.directions }}" rel="nofollow noopener" target="_blank">Get directions</a>{% endif %}
+      {% if r.website %}<a class="btn" href="{{ r.website }}" rel="nofollow noopener" target="_blank">Website</a>{% endif %}
+    </p>
+  </header>
+
+  {% set shown = r.photos[:5] %}
+  <div class="gallery n{{ shown|length if shown else 0 }}"{% if not shown %} data-recover data-place="{{ r.place_id }}" data-i="0" data-alt="{{ r.name }}, {{ r.area }}, {{ r.city }}"{% endif %}>
+    {% for p in shown %}
+    <figure><img src="{{ thumb(p, 1000 if loop.first else 520, 750 if loop.first else 390) }}" alt="{{ r.name }}, {{ r.area }}, {{ r.city }}: photo {{ loop.index }}" loading="{{ 'eager' if loop.first else 'lazy' }}" referrerpolicy="no-referrer" data-place="{{ r.place_id }}" data-i="{{ loop.index0 }}" onerror="imgFail(this)"></figure>
     {% endfor %}
-    </div>
+  </div>
+  <p class="credit" id="photo-credit" hidden></p>
+
+  <div class="detail">
+    <section class="panel">
+      <h2>Details</h2>
+      <dl class="facts">
+        <dt>Address</dt><dd>{{ r.address }}</dd>
+        {% if r.phone %}<dt>Phone</dt><dd><a href="tel:{{ r.tel }}">{{ r.phone }}</a></dd>{% endif %}
+        {% if r.website %}<dt>Website</dt><dd><a href="{{ r.website }}" rel="nofollow noopener" target="_blank">{{ r.website|replace('https://','')|replace('http://','')|trim('/') }}</a></dd>{% endif %}
+        {% if r.cuisine_type %}<dt>Type</dt><dd>{{ r.cuisine_type }}</dd>{% endif %}
+        {% if r.price %}<dt>Price</dt><dd>{{ r.price }}</dd>{% endif %}
+        {% if r.rating %}<dt>Rating</dt><dd>{{ r.rating }} out of 5{% if r.reviews %} from {{ '{:,}'.format(r.reviews) }} Google reviews{% endif %}</dd>{% endif %}
+        <dt>Location</dt><dd><a href="{{ u(area.path) }}">{{ r.area }}</a>, <a href="{{ u(city.path) }}">{{ r.city }}</a>, <a href="{{ u(state.path) }}">{{ r.state }}</a></dd>
+      </dl>
+    </section>
+    <aside class="panel">
+      <h2>Find it on the map</h2>
+      <p>{{ r.name }} is in {{ r.area }}, {{ r.city }}. Open the listing on Google Maps for opening hours, reviews and live directions.</p>
+      {% if r.google_maps_link %}<p><a class="btn btn-dark" href="{{ r.google_maps_link }}" rel="nofollow noopener" target="_blank">Open in Google Maps</a></p>{% endif %}
+      <p class="small">Opening hours and menus can change. Confirm with the restaurant before you go.</p>
+    </aside>
+  </div>
+
+  {% if related_area %}
+  <section class="block">
+    <h2>More restaurants in {{ r.area }}</h2>
+    <div class="grid">{% for x in related_area %}{{ m.card(x) }}{% endfor %}</div>
+    <p class="more"><a href="{{ u(area.path) }}">See all restaurants in {{ r.area }}</a></p>
+  </section>
+  {% endif %}
+  {% if same_cuisine %}
+  <section class="block">
+    <h2>More {{ r.cuisine_short }} restaurants in {{ r.city }}</h2>
+    <div class="grid">{% for x in same_cuisine %}{{ m.card(x) }}{% endfor %}</div>
   </section>
   {% endif %}
 </div>
-
-{% if related_area %}
-<section>
-  <h2>More restaurants in {{ r.area }}</h2>
-  <div class="grid">{% for x in related_area %}{{ m.card(x) }}{% endfor %}</div>
-  <p class="more"><a href="{{ u(area.path) }}">All restaurants in {{ r.area }}</a></p>
-</section>
-{% endif %}
-{% if same_cuisine %}
-<section>
-  <h2>More {{ r.cuisine_short }} restaurants in {{ r.city }}</h2>
-  <div class="grid">{% for x in same_cuisine %}{{ m.card(x) }}{% endfor %}</div>
-</section>
-{% endif %}
 {% endblock %}

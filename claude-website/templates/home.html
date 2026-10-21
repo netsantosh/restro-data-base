@@ -1,22 +1,54 @@
 {% extends "base.html" %}
 {% import "macros.html" as m %}
+{% block header_search %}{% endblock %}
 {% block main %}
-<h1>{{ site.tagline }}</h1>
-<div class="intro">
-  <p>Browse {{ '{:,}'.format(total) }} restaurants across {{ n_areas }} areas. Pick a country, city or area, then filter by cuisine and Google Maps rating.</p>
+<section class="hero">
+  <div class="wrap hero-in">
+    <p class="eyebrow">Restaurant guide</p>
+    <h1>Find the best restaurants in {{ country_names }}</h1>
+    <p class="hero-sub">Browse places to eat city by city and area by area. Compare Google Maps ratings and cuisines, then get the address, phone number, photos and directions.</p>
+    <div class="search search-lg" data-search>
+      <label class="vh" for="q-hero">Search restaurants</label>
+      <input id="q-hero" type="search" placeholder="Search by restaurant, area or city" autocomplete="off">
+      <ul class="results" hidden></ul>
+    </div>
+    <p class="quick"><span>Popular:</span> {% for c in hero_cities %}<a href="{{ c.href }}">{{ c.name }}</a>{% endfor %}</p>
+  </div>
+</section>
+
+<div class="wrap">
+  <section class="block">
+    <div class="block-head"><h2>Browse by city</h2></div>
+    {{ m.tiles(city_tiles) }}
+  </section>
+
+  <section class="block">
+    <div class="block-head"><h2>Top rated restaurants</h2><p class="small">Ranked by Google Maps rating and number of reviews.</p></div>
+    <div class="grid">{% for r in top %}{{ m.card(r) }}{% endfor %}</div>
+  </section>
+
+  <section class="block">
+    <div class="block-head"><h2>Explore by state</h2></div>
+    {{ m.tiles(state_tiles) }}
+  </section>
 </div>
-<section>
-  <h2>Choose a country</h2>
-  {{ m.linklist(countries) }}
+
+<section class="band">
+  <div class="wrap">
+    <h2>How it works</h2>
+    <ol class="steps">
+      <li><h3>Pick a place</h3><p>Choose a city, then an area. Every area has its own list of restaurants.</p></li>
+      <li><h3>Compare options</h3><p>Filter by cuisine, sort by rating or reviews, and look through photos.</p></li>
+      <li><h3>Go and enjoy</h3><p>Open a restaurant for its address, phone number and directions on Google Maps.</p></li>
+    </ol>
+  </div>
 </section>
-<section>
-  <h2>Popular cities</h2>
-  <ul class="linklist">
-  {% for c in cities %}<li><a href="{{ c.href }}">{{ c.name }}</a> <span class="count">{{ '{:,}'.format(c.count) }}</span></li>{% endfor %}
-  </ul>
-</section>
-<section>
-  <h2>Top rated restaurants</h2>
-  <div class="grid">{% for r in top %}{{ m.card(r) }}{% endfor %}</div>
-</section>
+
+<div class="wrap">
+  <section class="article">
+    <h2>About {{ site.site_name }}</h2>
+    <p>{{ site.site_name }} is a restaurant directory built around how people actually choose where to eat: first the city, then the neighbourhood, then the place. Each area page lists the restaurants there with their cuisine, rating, address and contact details, so you can compare quickly.</p>
+    <p>Ratings and review counts shown on this site are taken from public Google Maps listings and are refreshed when the listings are updated. They are not reviews written on this site. If a place has closed or moved, <a href="{{ u('contact') }}">let us know</a> and we will fix it.</p>
+  </section>
+</div>
 {% endblock %}

@@ -14,33 +14,67 @@
 <meta property="og:url" content="{{ canonical }}">
 {% if og_image %}<meta property="og:image" content="{{ og_image }}">{% endif %}
 <meta name="twitter:card" content="summary">
+<link rel="preload" href="{{ asset('static/fonts/instrument-sans-latin-wght-normal.woff2') }}" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="{{ asset('static/fonts/newsreader-latin-wght-normal.woff2') }}" as="font" type="font/woff2" crossorigin>
 <link rel="stylesheet" href="{{ asset('static/style.css') }}">
+<script>window.__imgErr=[];window.imgFail=function(i){window.__imgErr.push(i)};</script>
 {% for item in schema %}
 <script type="application/ld+json">{{ item|tojson }}</script>
 {% endfor %}
 </head>
-<body>
+<body class="{{ body_class|default('') }}">
 <a class="skip" href="#main">Skip to content</a>
 <header class="top">
   <div class="wrap bar">
-    <a class="brand" href="{{ u() }}">{{ site.site_name }}</a>
-    <div class="search">
-      <label class="vh" for="site-search">Search restaurants</label>
-      <input id="site-search" type="search" placeholder="Search restaurants" autocomplete="off">
-      <ul id="search-results" hidden></ul>
+    <a class="brand" href="{{ u() }}"><span class="dot" aria-hidden="true"></span>{{ site.site_name }}</a>
+    <nav class="nav" aria-label="Main">
+      <details class="menu">
+        <summary>Cities</summary>
+        <div class="menu-panel">
+          {% for st in nav_states %}
+          <div class="menu-col">
+            <h4>{{ st.name }}</h4>
+            <ul>{% for c in st.cities %}<li><a href="{{ c.href }}">{{ c.name }}</a></li>{% endfor %}</ul>
+          </div>
+          {% endfor %}
+        </div>
+      </details>
+      <a href="{{ u('about') }}">About</a>
+    </nav>
+    {% block header_search %}
+    <div class="search" data-search>
+      <label class="vh" for="q-head">Search restaurants</label>
+      <input id="q-head" type="search" placeholder="Search restaurants" autocomplete="off">
+      <ul class="results" hidden></ul>
     </div>
+    {% endblock %}
   </div>
 </header>
-<main id="main" class="wrap">
+<main id="main">
 {% block main %}{% endblock %}
 </main>
 <footer class="foot">
-  <div class="wrap">
-    <p><a href="{{ u('about') }}">About</a> · <a href="{{ u('contact') }}">Contact</a> · <a href="{{ u('privacy-policy') }}">Privacy Policy</a></p>
-    <p class="small">Restaurant details are compiled from public Google Maps listings and may change. Check with the restaurant before you visit. &copy; {{ year }} {{ site.site_name }}.</p>
+  <div class="wrap foot-grid">
+    <div>
+      <p class="foot-brand">{{ site.site_name }}</p>
+      <p class="small">A restaurant guide organised by city and area. Ratings, addresses and photos come from public Google Maps listings.</p>
+    </div>
+    <div>
+      <h4>Cities</h4>
+      <ul>{% for c in footer_cities %}<li><a href="{{ c.href }}">{{ c.name }}</a></li>{% endfor %}</ul>
+    </div>
+    <div>
+      <h4>Guide</h4>
+      <ul>
+        <li><a href="{{ u('about') }}">About</a></li>
+        <li><a href="{{ u('contact') }}">Contact</a></li>
+        <li><a href="{{ u('privacy-policy') }}">Privacy Policy</a></li>
+      </ul>
+    </div>
   </div>
+  <div class="wrap foot-base"><p class="small">Details can change. Please check with the restaurant before you visit. &copy; {{ year }} {{ site.site_name }}.</p></div>
 </footer>
-<script>window.SITE={base:{{ site.base_path|tojson }}};</script>
+<script>window.SITE={base:{{ site.base_path|tojson }},photoApi:{{ site.photo_api|tojson }}};</script>
 <script src="{{ asset('static/site.js') }}" defer></script>
 </body>
 </html>
