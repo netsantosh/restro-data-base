@@ -34,6 +34,7 @@
   {% for r in restaurants %}{{ m.card(r) }}{% endfor %}
   </div>
   <p id="flt-empty" class="empty" hidden>No restaurants match these filters. Try a different cuisine or rating.</p>
+  {{ m.pager(pager) }}
 
   {% if nearby %}
   <section class="block">

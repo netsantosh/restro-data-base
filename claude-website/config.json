@@ -2,7 +2,7 @@
   "site_name": "Restro Guide",
   "base_url": "https://example.com",
   "base_path": "",
-  "locale": "en-IN",
+  "locale": "en",
   "min_area_restaurants": 3,
   "ignore_names": [
     "Google Maps"
@@ -10,5 +10,8 @@
   "contact_email": "hello@example.com",
   "tagline": "Find where to eat, city by city",
   "places_api_key": "",
-  "photo_api": ""
+  "photo_api": "",
+  "photo_resize": true,
+  "page_size": 24,
+  "area_page_size": 100
 }

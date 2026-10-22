@@ -8,24 +8,27 @@
     <p class="lede">{{ top_intro }}</p>
   </header>
 
+  <section class="block" id="restaurants">
+    <h2>{{ top_heading }}</h2>
+    <div class="grid">{% for r in listing %}{{ m.card(r) }}{% endfor %}</div>
+    {{ m.pager(pager) }}
+  </section>
+
+  {% if first_page and tiles %}
   <section class="block">
     <h2>{{ tiles_heading }}</h2>
     {{ m.tiles(tiles) }}
   </section>
+  {% endif %}
 
-  {% if secondary %}
+  {% if first_page and secondary %}
   <section class="block">
     <h2>{{ secondary.heading }}</h2>
     {{ m.tiles(secondary.tiles) }}
   </section>
   {% endif %}
 
-  <section class="block">
-    <h2>{{ top_heading }}</h2>
-    <div class="grid">{% for r in top %}{{ m.card(r) }}{% endfor %}</div>
-  </section>
-
-  {% if bottom_intro or sections or faqs %}
+  {% if first_page and (bottom_intro or sections or faqs) %}
   <section class="article">
     {% if bottom_intro %}
     <h2>About restaurants in {{ node.name }}</h2>
@@ -34,6 +37,10 @@
     {{ m.prose(sections) }}
     {{ m.faq(faqs) }}
   </section>
+  {% endif %}
+
+  {% if not first_page %}
+  <p class="more"><a href="{{ u(node.path) }}">Back to {{ node.name }}</a></p>
   {% endif %}
 </div>
 {% endblock %}

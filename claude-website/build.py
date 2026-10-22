@@ -26,6 +26,7 @@ from xml.sax.saxutils import escape as xml_escape
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 
 import data_sources
+import photo_check
 from utils import (clean_image, clip, cuisine_phrase, first_words, fit, initials, km_between,
                    paragraphs, s, slugify, tel_href, thumb, to_float, to_int)
 
@@ -101,7 +102,7 @@ def load_restaurants(df, report, ignore_names=()):
         r["price"] = r["price_level"]
         site = r["website"]
         r["website"] = site if site.lower().startswith(("http://", "https://")) else ""
-        r["tel"] = tel_href(r["phone"])
+        r["tel"] = tel_href(r["phone"], r["country"])
         photos = []
         for c in photo_cols:
             u = clean_image(rec.get(c))
@@ -178,7 +179,8 @@ def compute_stats(root, walk, all_rest):
         n.count = len(rs)
         n.avg = round(sum(ratings) / len(ratings), 1) if ratings else None
         n.cuisines = Counter(r["cuisine_short"] for r in rs if r["cuisine_short"]).most_common(10)
-        n.top = sorted(rs, key=lambda r: r["score"], reverse=True)[:12]
+        n.ranked = sorted(rs, key=lambda r: r["score"], reverse=True)
+        n.top = n.ranked[:12]
         lats = [r["lat"] for r in rs if r["lat"] is not None]
         lons = [r["lon"] for r in rs if r["lon"] is not None]
         n.center = (sum(lats) / len(lats), sum(lons) / len(lons)) if lats and lons else None
@@ -230,8 +232,11 @@ class Site:
                                autoescape=select_autoescape(["html"]),
                                trim_blocks=True, lstrip_blocks=True)
         self.env.filters["paragraphs"] = paragraphs
-        self.env.globals.update(thumb=thumb, initials=initials, site=cfg, u=self.u, asset=self.asset,
+        self.env.globals.update(thumb=self.thumb, initials=initials, site=cfg, u=self.u, asset=self.asset,
                                 year=datetime.now().year)
+
+    def thumb(self, url, w=400, h=300):
+        return thumb(url, w, h) if self.cfg.get("photo_resize", True) else url
 
     def u(self, path=""):
         path = path.strip("/")
@@ -243,14 +248,14 @@ class Site:
     def canonical(self, path):
         return self.cfg["base_url"] + self.u(path)
 
-    def write(self, path, template, indexable=True, lastmod="", **ctx):
+    def write(self, path, template, indexable=True, lastmod="", sitemap=True, **ctx):
         ctx.setdefault("noindex", not indexable)
         ctx["canonical"] = self.canonical(path)
         html = self.env.get_template(template).render(**ctx)
         dest = self.out / path.strip("/") / "index.html" if path.strip("/") else self.out / "index.html"
         dest.parent.mkdir(parents=True, exist_ok=True)
         dest.write_text(html, encoding="utf-8")
-        self.pages.append((path.strip("/"), lastmod, indexable))
+        self.pages.append((path.strip("/"), lastmod, indexable and sitemap))
 
 
 def crumbs_for(site, node, last_link=False):
@@ -279,6 +284,38 @@ def faq_schema(faqs):
     return {"@context": "https://schema.org", "@type": "FAQPage", "mainEntity": [
         {"@type": "Question", "name": f["q"],
          "acceptedAnswer": {"@type": "Answer", "text": f["a"]}} for f in faqs]}
+
+
+PAGE_SIZE = 24
+
+
+def page_path(base, n):
+    return base if n == 1 else f"{base}/page/{n}"
+
+
+def pagination(site, base, page, total):
+    """Pager data for the template: prev/next links and a windowed list of page numbers."""
+    if total <= 1:
+        return None
+    show = sorted({n for n in (1, 2, total - 1, total, page - 1, page, page + 1) if 1 <= n <= total})
+    items, prev = [], 0
+    for n in show:
+        if prev and n - prev > 1:
+            items.append(None)
+        items.append({"n": n, "href": site.u(page_path(base, n)), "current": n == page})
+        prev = n
+    return {"page": page, "total": total,
+            "prev": site.u(page_path(base, page - 1)) if page > 1 else "",
+            "next": site.u(page_path(base, page + 1)) if page < total else "", "items": items}
+
+
+def country_phrase(countries):
+    names = [c.name for c in countries]
+    if len(names) == 1:
+        return f"in {names[0]}"
+    if len(names) <= 3:
+        return "in " + ", ".join(names[:-1]) + " and " + names[-1]
+    return "around the world"
 
 
 def decorate(site, r):
@@ -343,6 +380,7 @@ def generic_desc(node):
 
 
 
+
 def render_place(site, node, content, report):
     c = content.get(node.path)
     kind = node.kind
@@ -378,11 +416,31 @@ def render_place(site, node, content, report):
         report["short_content"].append(f"{node.path}: {c['words']} words")
     if c and len(title) > 65:
         report["long_titles"].append(f"{node.path}: {len(title)} chars")
-    site.write(node.path, "place.html", indexable=bool(c), lastmod=node.lastmod, title=title, description=desc,
-               schema=schema, crumbs=crumbs, node=node, h1=h1, top_intro=top_intro, bottom_intro=bottom_intro,
-               sections=(c and c["sections"]) or [], faqs=(c and c["faqs"]) or [], tiles=tiles, tiles_heading=heading,
-               secondary=secondary, top=[decorate(site, r) for r in node.top],
-               top_heading=f"Top rated restaurants in {name}", og_type="website")
+
+    size = int(site.cfg.get("page_size", PAGE_SIZE))
+    total = max(1, -(-len(node.ranked) // size))
+    for page in range(1, total + 1):
+        chunk = [decorate(site, r) for r in node.ranked[(page - 1) * size: page * size]]
+        pager = pagination(site, node.path, page, total)
+        if page == 1:
+            site.write(node.path, "place.html", indexable=bool(c), lastmod=node.lastmod, title=title, description=desc,
+                       schema=schema, crumbs=crumbs, node=node, h1=h1, top_intro=top_intro, bottom_intro=bottom_intro,
+                       sections=(c and c["sections"]) or [], faqs=(c and c["faqs"]) or [], tiles=tiles,
+                       tiles_heading=heading, secondary=secondary, listing=chunk, pager=pager, first_page=True,
+                       top_heading=f"Top rated restaurants in {name}", og_type="website")
+        else:
+            pcrumbs = crumbs_for(site, node, last_link=True) + [(f"Page {page}", None)]
+            ptitle = fit([f"Restaurants in {name}, Page {page} | {sname}", f"{name} Restaurants, Page {page}",
+                          f"Page {page} | {name}"], 60)
+            pschema = [finalize_breadcrumb_schema(breadcrumb_schema(site, pcrumbs), site.canonical(page_path(node.path, page)))]
+            site.write(page_path(node.path, page), "place.html", indexable=bool(c), sitemap=False, lastmod=node.lastmod,
+                       title=ptitle, description=clip(f"More restaurants in {name}, ranked by Google Maps rating. Page {page} "
+                                                      f"of {total}.", 155),
+                       schema=pschema, crumbs=pcrumbs, node=node, h1=f"Restaurants in {name}, Page {page}",
+                       top_intro=f"Keep browsing restaurants in {name}, ranked by Google Maps rating. Use the page numbers "
+                                 "below to move through the full list.",
+                       bottom_intro=[], sections=[], faqs=[], tiles=[], tiles_heading="", secondary=None, listing=chunk,
+                       pager=pager, first_page=False, top_heading=f"Restaurants in {name}", og_type="website")
 
 
 
@@ -405,15 +463,26 @@ def render_area(site, area, report):
     else:
         nearby.sort(key=lambda a: -a.count)
     crumbs = crumbs_for(site, area)
-    schema = [finalize_breadcrumb_schema(breadcrumb_schema(site, crumbs), site.canonical(area.path))]
-    schema.append({"@context": "https://schema.org", "@type": "ItemList", "name": f"Restaurants in {area.name}, {city.name}",
-                   "itemListElement": [{"@type": "ListItem", "position": i + 1, "url": site.cfg["base_url"] + r["href"],
-                                        "name": r["name"]} for i, r in enumerate(rs[:50])]})
-    site.write(area.path, "area.html", indexable=indexable, lastmod=area.lastmod, title=title, description=desc,
-               schema=schema, crumbs=crumbs, node=area, city=city, state=state,
-               h1=f"Best Restaurants in {area.name}, {city.name}", intro=generic_intro(area), restaurants=rs,
-               cuisines=[c for c, _ in area.cuisines],
-               nearby=[{"name": a.name, "href": site.u(a.path), "sub": ""} for a in nearby[:12]], og_type="website")
+    size = int(site.cfg.get("area_page_size", 100))
+    total = max(1, -(-len(rs) // size))
+    cuisines = [c for c, _ in area.cuisines]
+    for page in range(1, total + 1):
+        chunk = rs[(page - 1) * size: page * size]
+        pcrumbs = crumbs if page == 1 else crumbs_for(site, area, last_link=True) + [(f"Page {page}", None)]
+        schema = [finalize_breadcrumb_schema(breadcrumb_schema(site, pcrumbs), site.canonical(page_path(area.path, page)))]
+        schema.append({"@context": "https://schema.org", "@type": "ItemList", "name": f"Restaurants in {area.name}, {city.name}",
+                       "itemListElement": [{"@type": "ListItem", "position": (page - 1) * size + i + 1,
+                                            "url": site.cfg["base_url"] + r["href"], "name": r["name"]}
+                                           for i, r in enumerate(chunk[:50])]})
+        site.write(page_path(area.path, page), "area.html", indexable=indexable, sitemap=(page == 1), lastmod=area.lastmod,
+                   title=title if page == 1 else fit([f"Restaurants in {area.name}, {city.name}, Page {page} | {sname}",
+                                                      f"Restaurants in {area.name}, Page {page}"], 60),
+                   description=desc, schema=schema, crumbs=pcrumbs, node=area, city=city, state=state,
+                   h1=f"Best Restaurants in {area.name}, {city.name}" + ("" if page == 1 else f", Page {page}"),
+                   intro=generic_intro(area), restaurants=chunk, cuisines=cuisines,
+                   pager=pagination(site, area.path, page, total),
+                   nearby=[{"name": a.name, "href": site.u(a.path), "sub": ""} for a in nearby[:12]] if page == 1 else [],
+                   og_type="website")
 
 
 def render_restaurant(site, r, report):
@@ -465,25 +534,25 @@ def render_restaurant(site, r, report):
 
 
 
+
 def render_home(site, root, all_rest):
     countries = sorted(root.children.values(), key=lambda n: -n.count)
+    multi = len(countries) > 1
     all_cities = sorted((ct for c in countries for st in c.children.values() for ct in st.children.values()),
                         key=lambda n: -n.count)
-    all_states = sorted((st for c in countries for st in c.children.values()), key=lambda n: -n.count)
     top = sorted(all_rest, key=lambda r: r["score"], reverse=True)[:8]
-    names = " and ".join(c.name for c in countries[:2])
+    phrase = country_phrase(countries)
     sname = site.cfg["site_name"]
-    title = fit([f"Best Restaurants in {names} | {sname}", f"{sname}: Find Restaurants in {names}", sname], 60)
-    desc = clip(f"Find the best restaurants in {names}. Browse by city and area, compare Google Maps ratings and "
+    title = fit([f"Best Restaurants {phrase} | {sname}", f"{sname}: Find Restaurants", sname], 60)
+    desc = clip(f"Find the best restaurants {phrase}. Browse by country, city and area, compare Google Maps ratings and "
                 "cuisines, and get addresses, phone numbers, photos and directions.", 155)
-    schema = [{"@context": "https://schema.org", "@type": "WebSite", "name": sname, "url": site.canonical(""),
-               "potentialAction": {"@type": "SearchAction", "target": site.canonical("") + "?q={search_term_string}",
-                                   "query-input": "required name=search_term_string"}}]
+    schema = [{"@context": "https://schema.org", "@type": "WebSite", "name": sname, "url": site.canonical("")}]
+    sub = (lambda ct: f"{ct.parent.name}, {ct.parent.parent.name}") if multi else (lambda ct: ct.parent.name)
     site.write("", "home.html", indexable=True, lastmod=max((r["scraped_at"][:10] for r in all_rest), default=""),
-               title=title, description=desc, schema=schema, country_names=names,
+               title=title, description=desc, schema=schema, hero_title=f"Find the best restaurants {phrase}",
+               country_tiles=[{"name": c.name, "href": site.u(c.path), "sub": ""} for c in countries],
                hero_cities=[{"name": ct.name, "href": site.u(ct.path)} for ct in all_cities[:6]],
-               city_tiles=[{"name": ct.name, "href": site.u(ct.path), "sub": ct.parent.name} for ct in all_cities[:12]],
-               state_tiles=[{"name": st.name, "href": site.u(st.path), "sub": st.parent.name} for st in all_states],
+               city_tiles=[{"name": ct.name, "href": site.u(ct.path), "sub": sub(ct)} for ct in all_cities[:12]],
                top=[decorate(site, r) for r in top], og_type="website")
 
 
@@ -543,6 +612,8 @@ def main():
                     help="Also publish content rows with status Review (preview only).")
     ap.add_argument("--min-restaurants", type=int, default=int(os.environ.get("MIN_RESTAURANTS", "100")),
                     help="Abort if fewer restaurants load (protects the live site from a half-synced sheet).")
+    ap.add_argument("--check-photos", type=int, default=int(os.environ.get("PHOTO_CHECK_SAMPLE", "0") or 0),
+                    help="Test N random restaurants' photo links (needs internet) and report how many still load.")
     ap.add_argument("--limit", type=int, default=0, help="Only build the first N listing rows (quick tests).")
     args = ap.parse_args()
     if not args.db:
@@ -560,6 +631,15 @@ def main():
     if len(restaurants) < args.min_restaurants and not args.limit:
         sys.exit(f"Only {len(restaurants)} restaurants loaded (minimum {args.min_restaurants}). "
                  "The sheet may be mid-sync. Nothing was built.")
+    if args.check_photos:
+        res = photo_check.run(restaurants, args.check_photos, cfg["base_url"] + "/")
+        report["photo_check"] = res
+        print(f"  photo check ({res['sampled']} sampled): working {res['working_pct']}% | both links ok {res['both_ok']} | "
+              f"only original link ok {res['only_original_ok']} | only resized ok {res['only_resized_ok']} | "
+              f"both dead {res['both_dead']} | other {res['other']}")
+        if res["only_original_ok"] > 3 * max(res["only_resized_ok"], 0) + 2 and res["only_original_ok"] > res["both_ok"]:
+            cfg["photo_resize"] = False
+            print("  ! resized photo links fail but originals load: serving original links (photo_resize off)")
     root, walk = build_tree(restaurants, report)
     compute_stats(root, walk, restaurants)
     content = load_content(data_sources.read_content(args.content), args.include_review, report)
@@ -574,11 +654,13 @@ def main():
     (out / ".nojekyll").write_text("", encoding="utf-8")
 
     site = Site(cfg, out)
-    nav = defaultdict(list)
-    for n in walk(root):
-        if n.kind == "city":
-            nav[n.parent.name].append({"name": n.name, "href": site.u(n.path)})
-    site.env.globals["nav_states"] = [{"name": k, "cities": sorted(v, key=lambda x: x["name"])} for k, v in sorted(nav.items())]
+    countries = sorted(root.children.values(), key=lambda n: -n.count)
+    site.env.globals["nav_countries"] = [{
+        "name": c.name, "href": site.u(c.path),
+        "cities": [{"name": ct.name, "href": site.u(ct.path)} for ct in sorted(
+            (ct for st in c.children.values() for ct in st.children.values()), key=lambda n: -n.count)[:10]]}
+        for c in countries]
+    site.env.globals["footer_countries"] = [{"name": c.name, "href": site.u(c.path)} for c in countries]
     site.env.globals["footer_cities"] = [{"name": n.name, "href": site.u(n.path)} for n in sorted(
         (n for n in walk(root) if n.kind == "city"), key=lambda n: -n.count)[:8]]
     for n in walk(root):
