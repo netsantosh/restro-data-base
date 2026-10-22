@@ -43,6 +43,7 @@ jobs:
           SITE_NAME: ${{ vars.SITE_NAME }}
           CONTACT_EMAIL: ${{ vars.CONTACT_EMAIL }}
           PHOTO_API: ${{ vars.PHOTO_API }}
+          PHOTO_CHECK_SAMPLE: "300"
         run: python build.py
       - uses: actions/upload-pages-artifact@v3
         with:

@@ -54,21 +54,36 @@ def thumb(url, w=400, h=300):
     """Resize a lh3 URL via its size suffix."""
     if not url:
         return url
-    if re.search(r"=w\d+-h\d+(-[a-z-]+)?$", url):
-        return re.sub(r"=w\d+-h\d+(-[a-z-]+)?$", f"=w{w}-h{h}-c", url)
+    # change only the numbers and keep the rest of the size suffix (e.g. "-k-no") exactly as scraped
+    if re.search(r"=w\d+-h\d+(-[a-z0-9-]+)?$", url):
+        return re.sub(r"=w\d+-h\d+", f"=w{w}-h{h}", url, count=1)
     return url
 
 
-def tel_href(phone):
-    digits = re.sub(r"[^\d+]", "", s(phone))
+# country calling codes + the trunk prefix people dial domestically (stripped when a +code is added)
+DIAL = {"india": ("+91", "0"), "united states": ("+1", "1"), "usa": ("+1", "1"), "us": ("+1", "1"),
+        "united kingdom": ("+44", "0"), "uk": ("+44", "0"), "japan": ("+81", "0"), "russia": ("+7", "8"),
+        "germany": ("+49", "0"), "france": ("+33", "0"), "italy": ("+39", ""), "spain": ("+34", ""),
+        "uae": ("+971", "0"), "united arab emirates": ("+971", "0"), "singapore": ("+65", ""),
+        "australia": ("+61", "0"), "canada": ("+1", "1")}
+
+
+def tel_href(phone, country=""):
+    """tel: link target. Adds the country code only for countries listed in DIAL."""
+    raw = s(phone)
+    digits = re.sub(r"[^\d+]", "", raw)
     if not digits:
         return ""
     if digits.startswith("+"):
         return digits
-    digits = digits.lstrip("0")
-    if len(digits) == 10:
-        return "+91" + digits
-    return "+" + digits if len(digits) > 10 else digits
+    if digits.startswith("00"):
+        return "+" + digits[2:]
+    code, trunk = DIAL.get(s(country).lower(), ("", ""))
+    if not code:
+        return digits
+    if trunk and digits.startswith(trunk):
+        digits = digits[len(trunk):]
+    return code + digits
 
 
 def clip(text, n):

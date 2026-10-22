@@ -10,7 +10,7 @@
 <article class="card" data-name="{{ r.name|lower }}" data-cuisine="{{ r.cuisine_short }}" data-rating="{{ r.rating or 0 }}" data-reviews="{{ r.reviews or 0 }}">
   <a class="thumb" href="{{ r.href }}" tabindex="-1" aria-hidden="true"{% if not r.photos %} data-recover data-place="{{ r.place_id }}" data-i="0" data-alt="{{ r.name }} in {{ r.area }}, {{ r.city }}"{% endif %}>
     <span class="ph">{{ initials(r.name) }}</span>
-    {% if r.photos %}<img src="{{ thumb(r.photos[0], 480, 360) }}" alt="{{ r.name }} in {{ r.area }}, {{ r.city }}" loading="lazy" width="480" height="360" referrerpolicy="no-referrer" data-place="{{ r.place_id }}" data-i="0" onerror="imgFail(this)">{% endif %}
+    {% if r.photos %}<img src="{{ thumb(r.photos[0], 480, 360) }}" alt="{{ r.name }} in {{ r.area }}, {{ r.city }}" loading="lazy" width="480" height="360" referrerpolicy="no-referrer" data-place="{{ r.place_id }}" data-i="0" data-orig="{{ r.photos[0] }}" onerror="imgFail(this)">{% endif %}
   </a>
   <div class="card-body">
     <h3><a href="{{ r.href }}">{{ r.name }}</a></h3>
@@ -44,5 +44,21 @@
 <p>{{ f.a }}</p>
 {% endfor %}
 </div>
+{% endif %}
+{% endmacro %}
+
+{% macro pager(p) %}
+{% if p %}
+<nav class="pager" aria-label="Pagination">
+  {% if p.prev %}<a class="pg pg-step" href="{{ p.prev }}" rel="prev">Previous</a>{% else %}<span class="pg pg-step off">Previous</span>{% endif %}
+  <ul>
+  {% for it in p['items'] %}
+    {% if it is none %}<li class="gap" aria-hidden="true">&hellip;</li>
+    {% elif it.current %}<li><span class="pg cur" aria-current="page">{{ it.n }}</span></li>
+    {% else %}<li><a class="pg" href="{{ it.href }}">{{ it.n }}</a></li>{% endif %}
+  {% endfor %}
+  </ul>
+  {% if p.next %}<a class="pg pg-step" href="{{ p.next }}" rel="next">Next</a>{% else %}<span class="pg pg-step off">Next</span>{% endif %}
+</nav>
 {% endif %}
 {% endmacro %}

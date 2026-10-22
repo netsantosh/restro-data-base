@@ -33,6 +33,13 @@
       });
       list.hidden = out.length === 0;
     }
+    function go() {
+      var a = list.querySelector("a");
+      if (a) { window.location.href = a.href; } else { box.focus(); }
+    }
+    var btn = w.querySelector("[data-search-go]");
+    if (btn) btn.addEventListener("click", function () { loadIndex(function () { run(); go(); }); });
+    box.addEventListener("keydown", function (e) { if (e.key === "Enter") { e.preventDefault(); loadIndex(function () { run(); go(); }); } });
     box.addEventListener("focus", function () { loadIndex(run); });
     box.addEventListener("input", function () { loadIndex(run); });
     box.addEventListener("keydown", function (e) { if (e.key === "Escape") list.hidden = true; });
@@ -71,7 +78,14 @@
     if (fig) fig.style.display = "none"; else img.remove();
   }
   function recover(img) {
-    if (!img || img.dataset.tried) return;
+    if (!img) return;
+    var orig = img.dataset.orig;                       // 1) retry once with the link exactly as scraped
+    if (orig && !img.dataset.triedOrig && img.src !== orig) {
+      img.dataset.triedOrig = "1";
+      img.src = orig;
+      return;
+    }
+    if (img.dataset.tried) return;                     // 2) then ask the photo service
     img.dataset.tried = "1";
     fetchPhoto(img.dataset.place, img.dataset.i || 0, function (res) {
       if (!res) return giveUp(img);
