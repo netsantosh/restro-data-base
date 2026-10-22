@@ -24,6 +24,7 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
+    timeout-minutes: 150
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -32,6 +33,12 @@ jobs:
           cache: pip
           cache-dependency-path: claude-website/requirements.txt
       - run: pip install -r claude-website/requirements.txt
+      - name: Restore photo cache (verified photos and known dead links)
+        uses: actions/cache/restore@v4
+        with:
+          path: claude-website/photo_cache
+          key: photo-cache-${{ github.run_id }}
+          restore-keys: photo-cache-
       - name: Build site from the two Google Sheets
         working-directory: claude-website
         env:
@@ -43,8 +50,15 @@ jobs:
           SITE_NAME: ${{ vars.SITE_NAME }}
           CONTACT_EMAIL: ${{ vars.CONTACT_EMAIL }}
           PHOTO_API: ${{ vars.PHOTO_API }}
-          PHOTO_CHECK_SAMPLE: "300"
+          PHOTO_SYNC: "1"          # download + verify (HTTP 200) every photo, self-host it
+          PHOTO_SELENIUM: "1"      # Selenium refreshes restaurants whose photos are all dead
         run: python build.py
+      - name: Save photo cache
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: claude-website/photo_cache
+          key: photo-cache-${{ github.run_id }}
       - uses: actions/upload-pages-artifact@v3
         with:
           path: claude-website/dist

@@ -105,6 +105,7 @@
       img.dataset.tried = "1";
       img.onload = function () {
         if (box.classList.contains("gallery")) {
+          var old = box.querySelector(".ph-fig"); if (old) old.remove();
           var f = document.createElement("figure"); f.appendChild(img); box.appendChild(f);
           box.classList.remove("n0"); box.classList.add("n1"); box.style.display = "";
         } else box.appendChild(img);
