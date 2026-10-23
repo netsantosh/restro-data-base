@@ -229,6 +229,7 @@ class Site:
     def __init__(self, cfg, out):
         self.cfg, self.out = cfg, out
         self.pages = []              # (path, lastmod, indexable)
+        self.page_images = {}        # path -> absolute photo URLs (image sitemap)
         self.env = Environment(loader=FileSystemLoader(ROOT / "templates"),
                                autoescape=select_autoescape(["html"]),
                                trim_blocks=True, lstrip_blocks=True)
@@ -532,7 +533,10 @@ def render_restaurant(site, r, report):
     if r["cuisine_short"]:
         ld["servesCuisine"] = r["cuisine_short"]
     if r["photos"]:
-        ld["image"] = [absolute(site, x) for x in r["photos"][:3]]
+        ld["image"] = [absolute(site, x) for x in r["photos"][:5]]
+        site.page_images[r["path"]] = [absolute(site, x) for x in r["photos"][:5]]
+    if r["google_maps_link"]:
+        ld["hasMap"] = r["google_maps_link"]
     if r["price"] and re.fullmatch(r"[₹$€£]{1,4}", r["price"]):
         ld["priceRange"] = r["price"]
     if r["website"]:
@@ -605,9 +609,11 @@ def write_sitemap_and_robots(site):
         if not indexable:
             continue
         loc = base + site.u(path)
-        urls.append(f"  <url><loc>{xml_escape(loc)}</loc>" + (f"<lastmod>{lastmod}</lastmod>" if lastmod else "") + "</url>")
+        imgs = "".join(f"<image:image><image:loc>{xml_escape(i)}</image:loc></image:image>"
+                       for i in site.page_images.get(path, []))
+        urls.append(f"  <url><loc>{xml_escape(loc)}</loc>" + (f"<lastmod>{lastmod}</lastmod>" if lastmod else "") + imgs + "</url>")
     (site.out / "sitemap.xml").write_text(
-        '<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n'
+        '<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9" xmlns:image="http://www.google.com/schemas/sitemap-image/1.1">\n'
         + "\n".join(urls) + "\n</urlset>\n", encoding="utf-8")
     (site.out / "robots.txt").write_text(f"User-agent: *\nAllow: /\n\nSitemap: {base}{site.cfg['base_path']}/sitemap.xml\n",
                                          encoding="utf-8")

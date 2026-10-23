@@ -38,7 +38,7 @@ HEADERS = {
 DEAD_RETRY_DAYS = 14     # 403/404/410: the link has expired, look again only after this long
 ERROR_RETRY_DAYS = 1     # timeouts, 5xx, 429: try again soon
 PEOPLE_RETRY_DAYS = 90   # portrait/selfie/letter-avatar images are not retried for a long time
-FILTER_V = 2             # bump to re-check every cached photo with the content filter
+FILTER_V = 3             # level reached by a photo that passed the full content check (see judge)
 REFRESH_RETRY_DAYS = 7   # Selenium refresh for a restaurant is attempted at most once per week
 
 
@@ -77,16 +77,20 @@ class Store:
         k = key_for(url)
         e = self.data["urls"].get(k)
         if e and e["s"] == "ok" and self.path(k).exists():
-            return "ok" if e.get("v") == FILTER_V else "recheck"
+            return "ok"
         if e and e["s"] in ("dead", "err", "people"):
             limit = {"dead": DEAD_RETRY_DAYS, "err": ERROR_RETRY_DAYS, "people": PEOPLE_RETRY_DAYS}[e["s"]]
             if time.time() - e["t"] < limit * 86400:
                 return "skip"
         return None
 
-    def mark(self, url, status):
+    def mark(self, url, status, level=2):
         with self.lock:
-            self.data["urls"][key_for(url)] = {"s": status, "t": int(time.time()), "v": FILTER_V}
+            self.data["urls"][key_for(url)] = {"s": status, "t": int(time.time()), "v": level}
+
+    def level(self, url):
+        e = self.data["urls"].get(key_for(url))
+        return e.get("v", 1) if e else 0
 
 
 try:
@@ -115,6 +119,70 @@ def looks_bad(im):
     return len(faces) > 0
 
 
+# ---- content check ---------------------------------------------------------------------------
+# Level 2 = cheap OpenCV check only (letter avatars, large faces); trusted for business photos only.
+# Level 3 = also passed a zero-shot CLIP check ("is this food, a drink, a menu or the venue, and not a person?").
+# Photos attached to reviews are only used when they reach level 3.
+POSITIVE = ["a photo of food on a plate", "a photo of a dish served at a restaurant", "a photo of a drink or cocktail",
+            "a photo of a restaurant interior with tables and chairs", "a photo of a restaurant building seen from the street",
+            "a photo of a restaurant menu", "a photo of a bar counter or kitchen", "a photo of desserts or a bakery"]
+NEGATIVE = ["a selfie of a person", "a portrait photo of a person", "a close-up of a person's face",
+            "a group of people posing for a photo", "a profile picture", "a person standing outdoors",
+            "a poster or advertisement with a lot of text", "a blurry dark photo", "a landscape or street with no restaurant",
+            "a photo of a pet or animal", "a screenshot"]
+CLIP_MIN = 0.55                                     # share of probability that must fall on the positive labels
+_tl = threading.local()                             # level reached by the last download on this thread
+_clip = {"tried": False, "fn": None}
+_clip_lock = threading.Lock()
+
+
+def _load_clip(log=print):
+    """Load a CLIP model (needs torch + open_clip_torch; installed by the photos workflow). Returns fn(PIL image) -> score."""
+    try:
+        import open_clip
+        import torch
+        model, _, pre = open_clip.create_model_and_transforms("ViT-B-32", pretrained="laion2b_s34b_b79k")
+        model.eval()
+        tok = open_clip.get_tokenizer("ViT-B-32")
+        with torch.no_grad():
+            tf = model.encode_text(tok(POSITIVE + NEGATIVE))
+            tf = tf / tf.norm(dim=-1, keepdim=True)
+        npos = len(POSITIVE)
+
+        def score(im):
+            with torch.no_grad():
+                x = pre(im).unsqueeze(0)
+                f = model.encode_image(x)
+                f = f / f.norm(dim=-1, keepdim=True)
+                p = (100.0 * f @ tf.T).softmax(dim=-1)[0]
+                return float(p[:npos].sum())
+        log("  content check: CLIP model loaded")
+        return score
+    except Exception as e:
+        log(f"  content check: CLIP not available ({str(e).splitlines()[0][:100]}); only business photos are used")
+        return None
+
+
+def clip_fn():
+    with _clip_lock:
+        if not _clip["tried"]:
+            _clip["tried"] = True
+            _clip["fn"] = _load_clip()
+        return _clip["fn"]
+
+
+def judge(im, rank):
+    """(ok, level). Cheap OpenCV check first, then CLIP when available."""
+    if looks_bad(im):
+        return False, 2
+    fn = clip_fn()
+    if fn is None:
+        return rank == 0, 2
+    with _clip_lock:
+        s = fn(im)
+    return s >= CLIP_MIN, 3
+
+
 def _open(raw):
     im = Image.open(io.BytesIO(raw))
     im.load()
@@ -137,7 +205,7 @@ def _encode_im(im, size):
     return out.getvalue()
 
 
-def download(url, size, session=None, timeout=20):
+def download(url, size, session=None, timeout=20, rank=0):
     """Return (status, webp_bytes). status: ok | dead | err. 'ok' only for HTTP 200 + a real image."""
     sess = session or requests
     tries = [thumb(url, size[0] + 200, size[1] + 150)]
@@ -163,8 +231,10 @@ def download(url, size, session=None, timeout=20):
             continue
         try:
             im = _open(resp.content)
-            if looks_bad(im):
+            ok, level = judge(im, rank)
+            if not ok:
                 return "people", b""
+            _tl.level = level
             return "ok", _encode_im(im, size)
         except Exception:
             status = "dead"
@@ -172,31 +242,45 @@ def download(url, size, session=None, timeout=20):
 
 
 def fetch_one(store, url, size, allow=True):
+    """True when the photo is cached (or downloaded now) and passed the content check."""
     if is_avatar(url):
         return False
+    rank = photo_rank(url)
+    ready = clip_fn() is not None
+    if rank > 0 and not ready:                    # review photos are only trusted after the CLIP check
+        return False
+    need = 3 if ready else 2
     st = store.state(url)
-    if st == "recheck":                          # photo cached before the content filter existed
-        p = store.path(key_for(url))
+    if st == "ok":
+        if store.level(url) >= need:
+            return True
+        p = store.path(key_for(url))              # cached under a weaker check: judge it again from disk
         try:
-            bad = looks_bad(_open(p.read_bytes()))
+            ok, level = judge(_open(p.read_bytes()), rank)
         except Exception:
-            bad = True
-        if bad:
-            store.mark(url, "people")
-            p.unlink(missing_ok=True)
-            return False
-        store.mark(url, "ok")
-        return True
+            ok, level = False, need
+        if ok:
+            store.mark(url, "ok", level)
+            return True
+        store.mark(url, "people")
+        p.unlink(missing_ok=True)
+        return False
     if st:
-        return st == "ok"
+        return False
     if not allow:
         return False
-    status, data = download(url, size)
+    _tl.level = 2
+    try:
+        status, data = download(url, size, rank=rank)
+    except TypeError:                              # a replacement download() without the rank argument
+        status, data = download(url, size)
     if status == "ok":
         p = store.path(key_for(url))
         p.parent.mkdir(parents=True, exist_ok=True)
         p.write_bytes(data)
-    store.mark(url, status)
+        store.mark(url, "ok", getattr(_tl, "level", 2))
+    else:
+        store.mark(url, status)
     return status == "ok"
 
 
@@ -225,7 +309,7 @@ def collect_urls(driver, maps_link, wait=3.0):
         cands.append(img.get_attribute("src") or "")
     cands += [m.replace("\\u003d", "=").replace("\\u0026", "&") for m in PHOTO_RE.findall(driver.page_source)]
     found = []
-    for src in cands:
+    for src in sorted(cands, key=photo_rank):
         if "googleusercontent.com" not in src or is_avatar(src):
             continue
         src = clean_image(src)
@@ -322,8 +406,8 @@ def refresh_with_selenium(store, missing, per, size_main, size_other, max_minute
     return stats["fixed"]
 
 
-def sync(restaurants, per=4, min_photos=3, download_minutes=0, selenium_workers=3, workers=24, selenium=True, refresh_minutes=25, size_main=(640, 480),
-         size_other=(400, 300), cache_dir=CACHE, log=print, driver_factory=make_driver, collector=collect_urls):
+def sync(restaurants, per=4, min_photos=3, download_minutes=0, selenium_workers=3, workers=24, selenium=True, refresh_minutes=25, size_main=(800, 600),
+         size_other=(640, 480), cache_dir=CACHE, log=print, driver_factory=make_driver, collector=collect_urls):
     """Fill r['local_photos'] (site-relative paths) for every restaurant. Returns a report dict."""
     store = Store(cache_dir)
     lock = threading.Lock()

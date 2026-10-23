@@ -17,13 +17,31 @@
   </header>
 
   {% set shown = r.photos[:5] %}
-  <div class="gallery n{{ shown|length if shown else 0 }}"{% if not shown %} data-recover data-place="{{ r.place_id }}" data-i="0" data-alt="{{ r.name }}, {{ r.area }}, {{ r.city }}"{% endif %}>
-    {% if not shown %}<figure class="ph-fig"><span class="ph">{{ initials(r.name) }}</span></figure>{% endif %}
-    {% for p in shown %}
-    <figure><img src="{{ thumb(p, 1000 if loop.first else 520, 750 if loop.first else 390) }}" alt="{{ r.name }}, {{ r.area }}, {{ r.city }}: photo {{ loop.index }}" loading="{{ 'eager' if loop.first else 'lazy' }}" referrerpolicy="no-referrer" data-place="{{ r.place_id }}" data-i="{{ loop.index0 }}" data-orig="{{ p }}" onerror="imgFail(this)"></figure>
-    {% endfor %}
-  </div>
+  <section class="photos" aria-labelledby="photos-h">
+    <h2 id="photos-h" class="vh">Photos of {{ r.name }}</h2>
+    <div class="gallery n{{ shown|length }}" data-gallery{% if not shown %} data-recover data-place="{{ r.place_id }}" data-i="0" data-alt="{{ r.name }}, {{ r.area }}, {{ r.city }}"{% endif %}>
+      {% if not shown %}
+      <figure class="ph-fig"><span class="ph">{{ initials(r.name) }}</span>
+        <figcaption>Photos are not available for this place yet.{% if r.google_maps_link %} <a href="{{ r.google_maps_link }}" rel="nofollow noopener" target="_blank">See photos on Google Maps</a>{% endif %}</figcaption>
+      </figure>
+      {% endif %}
+      {% for p in shown %}
+      <figure><button type="button" class="g-btn" data-full="{{ p }}" data-alt="{{ r.name }}, {{ r.area }}, {{ r.city }}: photo {{ loop.index }}" aria-label="Open photo {{ loop.index }} of {{ shown|length }}">
+        <img src="{{ p }}" width="{{ 800 if loop.first else 640 }}" height="{{ 600 if loop.first else 480 }}" alt="{{ r.name }}, {{ r.area }}, {{ r.city }}: photo {{ loop.index }}" loading="{{ 'eager' if loop.first else 'lazy' }}" referrerpolicy="no-referrer" data-place="{{ r.place_id }}" data-i="{{ loop.index0 }}" data-orig="{{ p }}" onerror="imgFail(this)">
+      </button></figure>
+      {% endfor %}
+    </div>
+    {% if shown|length > 1 %}<p class="g-count"><span aria-hidden="true">&#9638;</span> {{ shown|length }} photos &middot; tap a photo to enlarge</p>{% endif %}
+  </section>
   <p class="credit" id="photo-credit" hidden></p>
+
+  <dialog id="lightbox" aria-label="Photo viewer">
+    <button type="button" class="lb-close" aria-label="Close">&times;</button>
+    <button type="button" class="lb-nav lb-prev" aria-label="Previous photo">&lsaquo;</button>
+    <img alt="" id="lb-img">
+    <button type="button" class="lb-nav lb-next" aria-label="Next photo">&rsaquo;</button>
+    <p id="lb-cap"></p>
+  </dialog>
 
   <div class="detail">
     <section class="panel">
@@ -41,6 +59,7 @@
     <aside class="panel">
       <h2>Find it on the map</h2>
       <p>{{ r.name }} is in {{ r.area }}, {{ r.city }}. Open the listing on Google Maps for opening hours, reviews and live directions.</p>
+      {% if r.lat is not none and r.lon is not none %}<iframe class="map" title="Map of {{ r.name }}" loading="lazy" referrerpolicy="no-referrer-when-downgrade" src="https://www.google.com/maps?q={{ r.lat }},{{ r.lon }}&amp;z=16&amp;output=embed"></iframe>{% endif %}
       {% if r.google_maps_link %}<p><a class="btn btn-dark" href="{{ r.google_maps_link }}" rel="nofollow noopener" target="_blank">Open in Google Maps</a></p>{% endif %}
       <p class="small">Opening hours and menus can change. Confirm with the restaurant before you go.</p>
     </aside>

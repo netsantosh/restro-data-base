@@ -131,3 +131,11 @@ Local test without internet: `python build.py ... ` (no `--sync-photos`) keeps t
 ## Pagination
 
 Country, state, city and area listings show 24 restaurants per page (`page_size`), with Previous, Next, numbered pages and "Page X of Y". Pages 2 and up have their own title and canonical link and stay out of the sitemap.
+
+## Photo quality filter
+
+Scraped Google images include reviewers' profile pictures and selfies. The build never shows them:
+- profile pictures are dropped by their link pattern;
+- business photos (`gps-cs-s` links) pass a quick OpenCV check (no letter avatars, no large faces);
+- photos attached to reviews are used only after a CLIP zero-shot check ("food, drink, menu or venue, not a person") that runs in the **photos** workflow (`requirements-photos.txt`). Until that has run, only business photos are shown.
+Restaurants with no approved photo show a black placeholder and a link to their photos on Google Maps. Each restaurant page has a gallery with a click-to-enlarge viewer, an embedded map and image sitemap entries.
