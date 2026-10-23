@@ -14,6 +14,7 @@ or changed photos are downloaded.
 """
 import collections
 import hashlib
+import os
 import io
 import json
 import re
@@ -37,6 +38,9 @@ HEADERS = {
 }
 DEAD_RETRY_DAYS = 14     # 403/404/410: the link has expired, look again only after this long
 ERROR_RETRY_DAYS = 1     # timeouts, 5xx, 429: try again soon
+# PHOTO_MODE=cache (site build): only use photos the photos workflow already downloaded and checked.
+# No downloads, no OpenCV, no CLIP, so a deploy can never be held up or crashed by photo work.
+CACHE_ONLY = os.environ.get("PHOTO_MODE", "full") == "cache"
 PEOPLE_RETRY_DAYS = 90   # portrait/selfie/letter-avatar images are not retried for a long time
 FILTER_V = 3             # level reached by a photo that passed the full content check (see judge)
 REFRESH_RETRY_DAYS = 7   # Selenium refresh for a restaurant is attempted at most once per week
@@ -93,13 +97,24 @@ class Store:
         return e.get("v", 1) if e else 0
 
 
-try:
-    import cv2
-    import numpy as np
-    _FACE = cv2.CascadeClassifier(cv2.data.haarcascades + "haarcascade_frontalface_default.xml")
-except Exception:                                   # opencv missing: skip the people check, keep everything else
-    cv2 = None
-    _FACE = None
+_cv = {"tried": False, "cv2": None, "np": None, "face": None}
+_cv_lock = threading.Lock()
+
+
+def _face_detector():
+    """Load OpenCV lazily (never in cache-only mode). Returns (cv2, numpy, cascade) or None."""
+    with _cv_lock:
+        if not _cv["tried"]:
+            _cv["tried"] = True
+            try:
+                import cv2
+                import numpy as np
+                face = cv2.CascadeClassifier(cv2.data.haarcascades + "haarcascade_frontalface_default.xml")
+                if not face.empty():
+                    _cv.update(cv2=cv2, np=np, face=face)
+            except Exception:
+                pass
+        return (_cv["cv2"], _cv["np"], _cv["face"]) if _cv["face"] is not None else None
 
 
 def looks_bad(im):
@@ -110,12 +125,15 @@ def looks_bad(im):
     hist = sorted(q.histogram(), reverse=True)
     if sum(hist[:2]) / max(1, sum(hist)) >= 0.88:
         return True
-    if cv2 is None:
+    det = _face_detector()
+    if det is None:
         return False
+    cv2, np, face = det
     g = np.array(small.convert("L"))
-    g = cv2.equalizeHist(g)
     min_side = max(24, int(min(g.shape) * 0.14))
-    faces = _FACE.detectMultiScale(g, scaleFactor=1.1, minNeighbors=6, minSize=(min_side, min_side))
+    with _cv_lock:                       # OpenCV's CascadeClassifier is not thread-safe: one detection at a time
+        g = cv2.equalizeHist(g)
+        faces = face.detectMultiScale(g, scaleFactor=1.1, minNeighbors=6, minSize=(min_side, min_side))
     return len(faces) > 0
 
 
@@ -246,6 +264,10 @@ def fetch_one(store, url, size, allow=True):
     if is_avatar(url):
         return False
     rank = photo_rank(url)
+    if CACHE_ONLY:
+        if store.state(url) != "ok":
+            return False
+        return rank == 0 or store.level(url) >= 3
     ready = clip_fn() is not None
     if rank > 0 and not ready:                    # review photos are only trusted after the CLIP check
         return False
@@ -442,7 +464,7 @@ def sync(restaurants, per=4, min_photos=3, download_minutes=0, selenium_workers=
     # restaurants with fewer photos than the target get topped up from Google Maps, emptiest first
     missing = sorted((r for r in restaurants if len(r["local_keys"]) < min_photos), key=lambda r: len(r["local_keys"]))
     fixed = 0
-    if selenium and missing:
+    if selenium and missing and not CACHE_ONLY:
         log(f"  {len(missing)} restaurants have fewer than {min_photos} working photos; refreshing from Google Maps (Selenium)")
         fixed = refresh_with_selenium(store, missing, per, size_main, size_other, refresh_minutes,
                                       driver_factory, collector, log, selenium_workers)

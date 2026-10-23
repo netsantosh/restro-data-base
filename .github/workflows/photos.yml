@@ -49,6 +49,7 @@ jobs:
           CONTENT_SHEET_ID: ${{ secrets.CONTENT_SHEET_ID }}
           PHOTO_SYNC: "1"
           PHOTO_SELENIUM: "1"
+          PYTHONFAULTHANDLER: "1"
         run: python build.py --photos-only
       - name: Save photo cache
         if: always()
