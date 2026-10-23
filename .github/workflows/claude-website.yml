@@ -24,7 +24,7 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
-    timeout-minutes: 150
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -50,15 +50,10 @@ jobs:
           SITE_NAME: ${{ vars.SITE_NAME }}
           CONTACT_EMAIL: ${{ vars.CONTACT_EMAIL }}
           PHOTO_API: ${{ vars.PHOTO_API }}
-          PHOTO_SYNC: "1"          # download + verify (HTTP 200) every photo, self-host it
-          PHOTO_SELENIUM: "1"      # Selenium refreshes restaurants whose photos are all dead
+          PHOTO_SYNC: "1"                # use verified, self-hosted photos from the cache
+          PHOTO_SELENIUM: "0"            # Selenium runs in the separate "photos" workflow
+          PHOTO_DOWNLOAD_MINUTES: "10"   # never let photo downloads hold up a deploy
         run: python build.py
-      - name: Save photo cache
-        if: always()
-        uses: actions/cache/save@v4
-        with:
-          path: claude-website/photo_cache
-          key: photo-cache-${{ github.run_id }}
       - uses: actions/upload-pages-artifact@v3
         with:
           path: claude-website/dist
