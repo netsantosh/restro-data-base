@@ -51,8 +51,9 @@ jobs:
           CONTACT_EMAIL: ${{ vars.CONTACT_EMAIL }}
           PHOTO_API: ${{ vars.PHOTO_API }}
           PHOTO_SYNC: "1"                # use verified, self-hosted photos from the cache
-          PHOTO_SELENIUM: "0"            # Selenium runs in the separate "photos" workflow
-          PHOTO_DOWNLOAD_MINUTES: "10"   # never let photo downloads hold up a deploy
+          PHOTO_MODE: cache              # only use photos the "photos" workflow already checked; no downloads here
+          PHOTO_SELENIUM: "0"
+          PYTHONFAULTHANDLER: "1"        # print a Python traceback if the process ever crashes
         run: python build.py
       - uses: actions/upload-pages-artifact@v3
         with:
