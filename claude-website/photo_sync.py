@@ -42,6 +42,7 @@ ERROR_RETRY_DAYS = 1     # timeouts, 5xx, 429: try again soon
 # No downloads, no OpenCV, no CLIP, so a deploy can never be held up or crashed by photo work.
 CACHE_ONLY = os.environ.get("PHOTO_MODE", "full") == "cache"
 MIN_LEVEL = int(os.environ.get("PHOTO_MIN_LEVEL", "3"))   # a photo is shown only after reaching this check level (3 = CLIP)
+PEOPLE_V = 4            # people verdicts made by an older rule (lower number) are judged again
 PEOPLE_RETRY_DAYS = 90   # portrait/selfie/letter-avatar images are not retried for a long time
 FILTER_V = 3             # level reached by a photo that passed the full content check (see judge)
 REFRESH_RETRY_DAYS = 7   # Selenium refresh for a restaurant is attempted at most once per week
@@ -83,6 +84,8 @@ class Store:
         e = self.data["urls"].get(k)
         if e and e["s"] == "ok" and self.path(k).exists():
             return "ok"
+        if e and e["s"] == "people" and e.get("v", 0) < PEOPLE_V:
+            return None
         if e and e["s"] in ("dead", "err", "people"):
             limit = {"dead": DEAD_RETRY_DAYS, "err": ERROR_RETRY_DAYS, "people": PEOPLE_RETRY_DAYS}[e["s"]]
             if time.time() - e["t"] < limit * 86400:
@@ -142,16 +145,20 @@ def looks_bad(im):
 # Level 2 = cheap OpenCV check only (letter avatars, large faces); trusted for business photos only.
 # Level 3 = also passed a zero-shot CLIP check ("is this food, a drink, a menu or the venue, and not a person?").
 # Photos attached to reviews are only used when they reach level 3.
+# The goal is "no people photos", not "only perfect photos". Anything that is not clearly a person, a profile picture,
+# a letter avatar or a logo is accepted: dark interiors, street stalls, menus, shop fronts and views from a restaurant.
 POSITIVE = ["a photo of food on a plate", "a photo of a dish served at a restaurant", "a photo of a drink or cocktail",
             "a photo of a restaurant interior with tables and chairs", "a photo of a restaurant building seen from the street",
-            "a photo of a restaurant menu", "a photo of a bar counter or kitchen", "a photo of desserts or a bakery"]
-NEGATIVE = ["a selfie of a person", "a portrait photo of a person", "a close-up of a person's face",
-            "a group of people posing for a photo", "a profile picture", "a person standing outdoors",
-            "a man posing for a photo", "a woman posing for a photo", "a child or a baby", "a chef or staff portrait",
-            "a letter or initial on a coloured background", "a logo or an icon", "a cartoon or illustration",
-            "a poster or advertisement with a lot of text", "a blurry dark photo", "a landscape or street with no restaurant",
-            "a photo of a pet or animal", "a screenshot"]
-CLIP_MIN = 0.55                                     # share of probability that must fall on the positive labels
+            "a photo of a restaurant menu", "a photo of a bar counter or kitchen", "a photo of desserts or a bakery",
+            "a dark photo of a restaurant at night", "a photo of a street food stall", "a photo of a shop sign or storefront",
+            "a photo of a hotel or banquet hall", "a photo of a table with several dishes", "a scenic view from a restaurant",
+            "a photo of a packaged food product", "a photo of a street or building"]
+PERSON = ["a selfie of a person", "a portrait photo of a person", "a close-up of a person's face",
+          "a group of people posing for a photo", "a profile picture of a person", "a man posing for a photo",
+          "a woman posing for a photo", "a child or a baby", "a chef or staff member posing for a photo",
+          "a person holding a phone or a drink and smiling", "a letter or initial on a coloured background",
+          "a logo or an icon", "a cartoon avatar"]
+PERSON_MAX = 0.35                                   # reject when this much probability falls on the person labels
 _tl = threading.local()                             # level reached by the last download on this thread
 _clip = {"tried": False, "fn": None}
 _clip_lock = threading.Lock()
@@ -166,7 +173,7 @@ def _load_clip(log=print):
         model.eval()
         tok = open_clip.get_tokenizer("ViT-B-32")
         with torch.no_grad():
-            tf = model.encode_text(tok(POSITIVE + NEGATIVE))
+            tf = model.encode_text(tok(POSITIVE + PERSON))
             tf = tf / tf.norm(dim=-1, keepdim=True)
         npos = len(POSITIVE)
 
@@ -176,7 +183,7 @@ def _load_clip(log=print):
                 f = model.encode_image(x)
                 f = f / f.norm(dim=-1, keepdim=True)
                 p = (100.0 * f @ tf.T).softmax(dim=-1)[0]
-                return float(p[:npos].sum())
+                return float(p[npos:].sum())     # probability that the photo is a person / avatar / logo
         log("  content check: CLIP model loaded")
         return score
     except Exception as e:
@@ -201,7 +208,7 @@ def judge(im, rank):
         return rank == 0, 2
     with _clip_lock:
         s = fn(im)
-    return s >= CLIP_MIN, 3
+    return s < PERSON_MAX, 3
 
 
 def _tiny(im):
@@ -310,7 +317,7 @@ def fetch_one(store, url, size, allow=True):
         if ok:
             store.mark(url, "ok", level)
             return True
-        store.mark(url, "people")
+        store.mark(url, "people", PEOPLE_V)
         if im is not None:
             _save_rejected(store, url, _tiny(im))
         p.unlink(missing_ok=True)
@@ -328,7 +335,7 @@ def fetch_one(store, url, size, allow=True):
         p.write_bytes(data)
         store.mark(url, "ok", getattr(_tl, "level", 3))
     else:
-        store.mark(url, status)
+        store.mark(url, status, PEOPLE_V if status == "people" else 2)
         if status == "people":
             _save_rejected(store, url, data)
     return status == "ok"
@@ -461,6 +468,11 @@ def sync(restaurants, per=4, min_photos=3, download_minutes=0, selenium_workers=
     """Fill r['local_photos'] (site-relative paths) for every restaurant. Returns a report dict."""
     store = Store(cache_dir)
     lock = threading.Lock()
+    if not CACHE_ONLY and store.data.get("judge_v") != PEOPLE_V:
+        import shutil
+        shutil.rmtree(store.dir / "rejected", ignore_errors=True)
+        store.data["rej_n"] = 0
+        store.data["judge_v"] = PEOPLE_V
     if not CACHE_ONLY and clip_fn() is None:
         raise SystemExit("The photo classifier (CLIP) could not be loaded, so no photo can be approved. "
                          "Check the 'content check' line above; the live site keeps its current photos.")
