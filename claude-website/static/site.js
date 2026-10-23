@@ -132,6 +132,28 @@
     } else Array.prototype.forEach.call(empties, fill);
   }
 
+  /* ---------- photo gallery lightbox (restaurant pages) ---------- */
+  (function () {
+    var box = document.getElementById("lightbox");
+    var btns = Array.prototype.slice.call(document.querySelectorAll(".g-btn"));
+    if (!box || !btns.length || !box.showModal) return;
+    var img = document.getElementById("lb-img"), cap = document.getElementById("lb-cap"), cur = 0;
+    function show(i) {
+      cur = (i + btns.length) % btns.length;
+      img.src = btns[cur].dataset.full;
+      img.alt = btns[cur].dataset.alt || "";
+      cap.textContent = (cur + 1) + " / " + btns.length;
+    }
+    btns.forEach(function (b, i) { b.addEventListener("click", function () { show(i); box.showModal(); }); });
+    box.querySelector(".lb-close").addEventListener("click", function () { box.close(); });
+    box.querySelector(".lb-prev").addEventListener("click", function () { show(cur - 1); });
+    box.querySelector(".lb-next").addEventListener("click", function () { show(cur + 1); });
+    box.addEventListener("click", function (e) { if (e.target === box) box.close(); });
+    box.addEventListener("keydown", function (e) {
+      if (e.key === "ArrowLeft") show(cur - 1); else if (e.key === "ArrowRight") show(cur + 1);
+    });
+  })();
+
   /* ---------- listing filters (area pages) ---------- */
   if (!window.FILTER) return;
   var grid = document.getElementById("grid");
