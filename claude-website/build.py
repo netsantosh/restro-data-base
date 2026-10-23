@@ -572,7 +572,8 @@ def render_home(site, root, all_rest):
                country_tiles=[{"name": c.name, "href": site.u(c.path), "sub": "", "img": node_photo(c)} for c in countries],
                hero_cities=[{"name": ct.name, "href": site.u(ct.path)} for ct in all_cities[:6]],
                city_tiles=[{"name": ct.name, "href": site.u(ct.path), "sub": sub(ct), "img": node_photo(ct)} for ct in all_cities[:12]],
-               top=[decorate(site, r) for r in top], og_type="website")
+               top=[decorate(site, r) for r in top], og_type="website",
+               hero_photos=[r["photos"][0] for r in sorted(all_rest, key=lambda r: r["score"], reverse=True)[:40] if r["photos"]][:4])
 
 
 STATIC_PAGES = {

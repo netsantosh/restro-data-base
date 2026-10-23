@@ -45,9 +45,26 @@ def clean_image(url):
     u = u.split("&quot;")[0].split('"')[0].split("\\")[0]
     if not u.startswith("https://lh3.googleusercontent.com/"):
         return None
-    if "default-user" in u or "/ogw/" in u:
+    if is_avatar(u):
         return None
     return u
+
+
+AVATAR_HINTS = ("/ogw/", "default-user", "/a/", "/a-/", "-rp-mo", "br100", "=s40-c", "=s64-c", "=s96-c")
+
+
+def is_avatar(url):
+    """Reviewer profile pictures and placeholder avatars (not photos of the restaurant)."""
+    return any(h in url for h in AVATAR_HINTS)
+
+
+_RANK = {"gps-cs-s": 0, "gps-proxy": 0, "grass-cs": 1, "grass-proxy": 1, "geougc": 2}
+
+
+def photo_rank(url):
+    """Business photos (gps-cs-s) first, then photos attached to reviews, then anything else."""
+    m = re.match(r"https://lh3\.googleusercontent\.com/([^/]+)/", url or "")
+    return _RANK.get(m.group(1), 3) if m else 3
 
 
 def thumb(url, w=400, h=300):
