@@ -18,6 +18,7 @@
 
   {% set shown = r.photos[:5] %}
   <div class="gallery n{{ shown|length if shown else 0 }}"{% if not shown %} data-recover data-place="{{ r.place_id }}" data-i="0" data-alt="{{ r.name }}, {{ r.area }}, {{ r.city }}"{% endif %}>
+    {% if not shown %}<figure class="ph-fig"><span class="ph">{{ initials(r.name) }}</span></figure>{% endif %}
     {% for p in shown %}
     <figure><img src="{{ thumb(p, 1000 if loop.first else 520, 750 if loop.first else 390) }}" alt="{{ r.name }}, {{ r.area }}, {{ r.city }}: photo {{ loop.index }}" loading="{{ 'eager' if loop.first else 'lazy' }}" referrerpolicy="no-referrer" data-place="{{ r.place_id }}" data-i="{{ loop.index0 }}" data-orig="{{ p }}" onerror="imgFail(this)"></figure>
     {% endfor %}

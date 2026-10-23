@@ -116,3 +116,18 @@ sample/             test-only content generator
 ```
 
 `slugify()` in `utils.py` and `slugify_()` in `Code.gs` must stay identical: the sheet's `path` column is how a content row finds its page.
+
+## Photos (self-hosted and verified)
+
+Google photo links in the sheet expire, so the build does not hot-link them. On every GitHub Actions run (`PHOTO_SYNC=1`):
+
+1. every photo link is downloaded and kept only if the server answers HTTP 200 with a real image; it is resized to WebP and served from the site itself (`/photos/...`);
+2. restaurants left with no working photo are opened on Google Maps with headless Chrome (Selenium) and fresh photo links are read and downloaded (time limit `selenium_minutes`, each restaurant retried at most weekly);
+3. verified photos and known dead links are cached between runs (`photo_cache/`), so later runs only fetch what is new.
+
+`photos_per_restaurant` (config.json, default 3) controls the site size; the build prints the photo size and warns above 900 MB (GitHub Pages limit is 1 GB). A browser-side fallback (`PHOTO_API`, see apps_script/photo_proxy) can still refresh a photo live if one breaks between builds.
+Local test without internet: `python build.py ... ` (no `--sync-photos`) keeps the scraped links as they are.
+
+## Pagination
+
+Country, state, city and area listings show 24 restaurants per page (`page_size`), with Previous, Next, numbered pages and "Page X of Y". Pages 2 and up have their own title and canonical link and stay out of the sitemap.

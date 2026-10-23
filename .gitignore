@@ -11,3 +11,5 @@ __pycache__/
 # website build output
 claude-website/dist/
 claude-website/build_report.json
+
+claude-website/photo_cache/

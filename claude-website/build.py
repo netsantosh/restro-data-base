@@ -27,6 +27,7 @@ from jinja2 import Environment, FileSystemLoader, select_autoescape
 
 import data_sources
 import photo_check
+import photo_sync
 from utils import (clean_image, clip, cuisine_phrase, first_words, fit, initials, km_between,
                    paragraphs, s, slugify, tel_href, thumb, to_float, to_int)
 
@@ -297,7 +298,12 @@ def pagination(site, base, page, total):
     """Pager data for the template: prev/next links and a windowed list of page numbers."""
     if total <= 1:
         return None
-    show = sorted({n for n in (1, 2, total - 1, total, page - 1, page, page + 1) if 1 <= n <= total})
+    lo, hi = max(1, page - 2), min(total, page + 2)
+    if page <= 3:
+        lo, hi = 1, min(total, 5)
+    elif page >= total - 2:
+        lo, hi = max(1, total - 4), total
+    show = sorted({n for n in [1, total, *range(lo, hi + 1)] if 1 <= n <= total})
     items, prev = [], 0
     for n in show:
         if prev and n - prev > 1:
@@ -316,6 +322,11 @@ def country_phrase(countries):
     if len(names) <= 3:
         return "in " + ", ".join(names[:-1]) + " and " + names[-1]
     return "around the world"
+
+
+def absolute(site, url):
+    """Full URL for structured data and og:image (local photos are stored as /base_path/photos/...)."""
+    return url if url.startswith("http") else site.cfg["base_url"].rstrip("/") + url
 
 
 def decorate(site, r):
@@ -521,7 +532,7 @@ def render_restaurant(site, r, report):
     if r["cuisine_short"]:
         ld["servesCuisine"] = r["cuisine_short"]
     if r["photos"]:
-        ld["image"] = r["photos"][:3]
+        ld["image"] = [absolute(site, x) for x in r["photos"][:3]]
     if r["price"] and re.fullmatch(r"[₹$€£]{1,4}", r["price"]):
         ld["priceRange"] = r["price"]
     if r["website"]:
@@ -530,9 +541,17 @@ def render_restaurant(site, r, report):
     site.write(r["path"], "restaurant.html", indexable=True, lastmod=r["scraped_at"][:10], title=title,
                description=desc, schema=schema, crumbs=crumbs, r=r, area=area, city=city, state=state,
                related_area=related_area, same_cuisine=same_cuisine, og_type="place",
-               og_image=thumb(r["photos"][0], 1200, 630) if r["photos"] else "")
+               og_image=absolute(site, thumb(r["photos"][0], 1200, 630)) if r["photos"] else "")
 
 
+
+
+def node_photo(node):
+    """First working photo among a place's top rated restaurants (used as the tile picture)."""
+    for r in getattr(node, "top", []) or []:
+        if r["photos"]:
+            return r["photos"][0]
+    return ""
 
 
 def render_home(site, root, all_rest):
@@ -550,9 +569,9 @@ def render_home(site, root, all_rest):
     sub = (lambda ct: f"{ct.parent.name}, {ct.parent.parent.name}") if multi else (lambda ct: ct.parent.name)
     site.write("", "home.html", indexable=True, lastmod=max((r["scraped_at"][:10] for r in all_rest), default=""),
                title=title, description=desc, schema=schema, hero_title=f"Find the best restaurants {phrase}",
-               country_tiles=[{"name": c.name, "href": site.u(c.path), "sub": ""} for c in countries],
+               country_tiles=[{"name": c.name, "href": site.u(c.path), "sub": "", "img": node_photo(c)} for c in countries],
                hero_cities=[{"name": ct.name, "href": site.u(ct.path)} for ct in all_cities[:6]],
-               city_tiles=[{"name": ct.name, "href": site.u(ct.path), "sub": sub(ct)} for ct in all_cities[:12]],
+               city_tiles=[{"name": ct.name, "href": site.u(ct.path), "sub": sub(ct), "img": node_photo(ct)} for ct in all_cities[:12]],
                top=[decorate(site, r) for r in top], og_type="website")
 
 
@@ -614,6 +633,9 @@ def main():
                     help="Abort if fewer restaurants load (protects the live site from a half-synced sheet).")
     ap.add_argument("--check-photos", type=int, default=int(os.environ.get("PHOTO_CHECK_SAMPLE", "0") or 0),
                     help="Test N random restaurants' photo links (needs internet) and report how many still load.")
+    ap.add_argument("--sync-photos", action="store_true", default=os.environ.get("PHOTO_SYNC") == "1",
+                    help="Download, verify (HTTP 200) and self-host restaurant photos (needs internet; Selenium refreshes dead ones).")
+    ap.add_argument("--no-selenium", action="store_true", default=os.environ.get("PHOTO_SELENIUM") == "0")
     ap.add_argument("--limit", type=int, default=0, help="Only build the first N listing rows (quick tests).")
     args = ap.parse_args()
     if not args.db:
@@ -631,7 +653,16 @@ def main():
     if len(restaurants) < args.min_restaurants and not args.limit:
         sys.exit(f"Only {len(restaurants)} restaurants loaded (minimum {args.min_restaurants}). "
                  "The sheet may be mid-sync. Nothing was built.")
-    if args.check_photos:
+    if args.sync_photos:
+        rep = photo_sync.sync(restaurants, per=int(cfg.get("photos_per_restaurant", 4)), selenium=not args.no_selenium,
+                              refresh_minutes=int(cfg.get("selenium_minutes", 25)))
+        report["photo_sync"] = rep
+        print(f"  photos: {rep['with_photo']} of {rep['restaurants']} restaurants have a verified photo "
+              f"({rep['fixed_by_selenium']} recovered via Selenium, {rep['without_photo']} without, {rep['seconds']}s)")
+        prefix = cfg["base_path"]
+        for r in restaurants:
+            r["photos"] = [f"{prefix}/{p}" for p in r["local_photos"]]
+    elif args.check_photos:
         res = photo_check.run(restaurants, args.check_photos, cfg["base_url"] + "/")
         report["photo_check"] = res
         print(f"  photo check ({res['sampled']} sampled): working {res['working_pct']}% | both links ok {res['both_ok']} | "
@@ -651,6 +682,12 @@ def main():
         shutil.rmtree(out)
     out.mkdir(parents=True)
     shutil.copytree(ROOT / "static", out / "static")
+    if args.sync_photos:
+        files, mb = photo_sync.copy_used(restaurants, out)
+        print(f"  photos copied into the site: {files} files, {mb} MB (GitHub Pages limit is 1000 MB)")
+        report["photo_mb"] = mb
+        if mb > 900:
+            print("  ! WARNING: photo folder is close to the GitHub Pages size limit; lower photos_per_restaurant in config.json")
     (out / ".nojekyll").write_text("", encoding="utf-8")
 
     site = Site(cfg, out)

@@ -10,6 +10,7 @@
 <article class="card" data-name="{{ r.name|lower }}" data-cuisine="{{ r.cuisine_short }}" data-rating="{{ r.rating or 0 }}" data-reviews="{{ r.reviews or 0 }}">
   <a class="thumb" href="{{ r.href }}" tabindex="-1" aria-hidden="true"{% if not r.photos %} data-recover data-place="{{ r.place_id }}" data-i="0" data-alt="{{ r.name }} in {{ r.area }}, {{ r.city }}"{% endif %}>
     <span class="ph">{{ initials(r.name) }}</span>
+    {% if r.rating %}<span class="badge"><span aria-hidden="true">★</span> {{ r.rating }}</span>{% endif %}
     {% if r.photos %}<img src="{{ thumb(r.photos[0], 480, 360) }}" alt="{{ r.name }} in {{ r.area }}, {{ r.city }}" loading="lazy" width="480" height="360" referrerpolicy="no-referrer" data-place="{{ r.place_id }}" data-i="0" data-orig="{{ r.photos[0] }}" onerror="imgFail(this)">{% endif %}
   </a>
   <div class="card-body">
@@ -23,7 +24,7 @@
 {% macro tiles(items) %}
 <ul class="tiles">
 {% for t in items %}
-<li><a href="{{ t.href }}"><span class="t-name">{{ t.name }}</span>{% if t.sub %}<span class="t-sub">{{ t.sub }}</span>{% endif %}<span class="t-go" aria-hidden="true">&rarr;</span></a></li>
+<li><a href="{{ t.href }}"{% if t.img is defined %} class="pt"{% endif %}>{% if t.img %}<img src="{{ thumb(t.img, 640, 480) }}" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.remove()">{% endif %}<span class="t-name">{{ t.name }}</span>{% if t.sub %}<span class="t-sub">{{ t.sub }}</span>{% endif %}<span class="t-go" aria-hidden="true">&rarr;</span></a></li>
 {% endfor %}
 </ul>
 {% endmacro %}
@@ -50,7 +51,9 @@
 {% macro pager(p) %}
 {% if p %}
 <nav class="pager" aria-label="Pagination">
-  {% if p.prev %}<a class="pg pg-step" href="{{ p.prev }}" rel="prev">Previous</a>{% else %}<span class="pg pg-step off">Previous</span>{% endif %}
+  <p class="pager-status">Page {{ p.page }} of {{ p.total }}</p>
+  <div class="pager-row">
+  {% if p.prev %}<a class="btn pg-step" href="{{ p.prev }}" rel="prev">&larr; Previous</a>{% else %}<span class="btn pg-step off" aria-disabled="true">&larr; Previous</span>{% endif %}
   <ul>
   {% for it in p['items'] %}
     {% if it is none %}<li class="gap" aria-hidden="true">&hellip;</li>
@@ -58,7 +61,8 @@
     {% else %}<li><a class="pg" href="{{ it.href }}">{{ it.n }}</a></li>{% endif %}
   {% endfor %}
   </ul>
-  {% if p.next %}<a class="pg pg-step" href="{{ p.next }}" rel="next">Next</a>{% else %}<span class="pg pg-step off">Next</span>{% endif %}
+  {% if p.next %}<a class="btn pg-step" href="{{ p.next }}" rel="next">Next &rarr;</a>{% else %}<span class="btn pg-step off" aria-disabled="true">Next &rarr;</span>{% endif %}
+  </div>
 </nav>
 {% endif %}
 {% endmacro %}
