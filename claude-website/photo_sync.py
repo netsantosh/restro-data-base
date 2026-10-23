@@ -12,6 +12,7 @@ This step runs on the build machine (GitHub Actions has internet) and for every 
 The cache lives in photo_cache/ and is restored between Actions runs, so after the first run only new
 or changed photos are downloaded.
 """
+import collections
 import hashlib
 import io
 import json
@@ -26,6 +27,7 @@ from PIL import Image
 
 from utils import clean_image, thumb
 
+CODES = collections.Counter()   # HTTP status codes seen this run (for the build log)
 ROOT = Path(__file__).parent
 CACHE = ROOT / "photo_cache"
 HEADERS = {
@@ -111,8 +113,10 @@ def download(url, size, session=None, timeout=20):
         try:
             resp = sess.get(u, headers=HEADERS, timeout=timeout)
         except requests.RequestException:
+            CODES["exception"] += 1
             status = "err"
             continue
+        CODES[resp.status_code] += 1
         if resp.status_code in (403, 404, 410):
             status = "dead"
             continue
@@ -129,10 +133,12 @@ def download(url, size, session=None, timeout=20):
     return status, b""
 
 
-def fetch_one(store, url, size):
+def fetch_one(store, url, size, allow=True):
     st = store.state(url)
     if st:
         return st == "ok"
+    if not allow:
+        return False
     status, data = download(url, size)
     if status == "ok":
         p = store.path(key_for(url))
@@ -184,59 +190,88 @@ def make_driver():
               "--window-size=1280,1600", "--lang=en-US"):
         opts.add_argument(a)
     opts.add_argument("--user-agent=" + HEADERS["User-Agent"])
-    return webdriver.Chrome(options=opts)
+    opts.page_load_strategy = "eager"
+    drv = webdriver.Chrome(options=opts)
+    drv.set_page_load_timeout(40)
+    return drv
 
 
 def refresh_with_selenium(store, missing, per, size_main, size_other, max_minutes, driver_factory=make_driver,
-                          collector=collect_urls, log=print):
-    """For restaurants with no working photo: read fresh links from their Google Maps page."""
+                          collector=collect_urls, log=print, workers=3):
+    """For restaurants with too few working photos: read fresh links from their Google Maps page.
+
+    Several headless Chrome windows work in parallel; each restaurant is tried at most once a week.
+    """
     deadline = time.time() + max_minutes * 60
     todo = [r for r in missing if r.get("google_maps_link")
             and time.time() - store.data["refresh"].get(r["place_id"], 0) > REFRESH_RETRY_DAYS * 86400]
     if not todo:
         return 0
-    try:
-        driver = driver_factory()
-    except Exception as e:                                     # Chrome or selenium not installed
-        log(f"  selenium refresh skipped: {str(e).splitlines()[0][:120]}")
-        return 0
-    fixed = 0
-    try:
-        for i, r in enumerate(todo):
-            if time.time() > deadline:
-                log(f"  selenium refresh stopped at the time limit ({i} of {len(todo)} tried); the rest continue next run")
-                break
-            store.data["refresh"][r["place_id"]] = int(time.time())
-            try:
-                urls = collector(driver, r["google_maps_link"])
-            except Exception:
-                continue
-            have = list(r["local_keys"])
-            new = []
-            for u in urls[:per + 8]:
-                if len(have) + len(new) >= per:
-                    break
-                if key_for(u) in have:
-                    continue
-                if fetch_one(store, u, size_main if not have and not new else size_other):
-                    new.append(u)
-            if new:
-                fixed += 1
-                fresh = store.data.setdefault("fresh", {})
-                fresh[r["place_id"]] = (fresh.get(r["place_id"], []) + new)[:12]
-                r["_fresh"] = new
-            if i % 25 == 0:
-                store.save()
-    finally:
+    todo_q = collections.deque(todo)
+    qlock = threading.Lock()
+    stats = {"fixed": 0, "tried": 0, "no_links": 0}
+
+    def handle(driver, r):
+        store.data["refresh"][r["place_id"]] = int(time.time())
         try:
-            driver.quit()
+            urls = collector(driver, r["google_maps_link"])
         except Exception:
-            pass
-        store.save()
-    return fixed
+            return
+        if not urls:
+            stats["no_links"] += 1
+        have = list(r["local_keys"])
+        new = []
+        for u in urls[:per + 8]:
+            if len(have) + len(new) >= per:
+                break
+            if key_for(u) in have:
+                continue
+            if fetch_one(store, u, size_main if not have and not new else size_other):
+                new.append(u)
+        if new:
+            stats["fixed"] += 1
+            fresh = store.data.setdefault("fresh", {})
+            fresh[r["place_id"]] = (fresh.get(r["place_id"], []) + new)[:12]
+            r["_fresh"] = new
+
+    def worker():
+        try:
+            driver = driver_factory()
+        except Exception as e:                                     # Chrome or selenium not installed
+            log(f"  selenium refresh skipped: {str(e).splitlines()[0][:120]}")
+            return
+        try:
+            while time.time() < deadline:
+                with qlock:
+                    if not todo_q:
+                        return
+                    r = todo_q.popleft()
+                    stats["tried"] += 1
+                    n = stats["tried"]
+                handle(driver, r)
+                if n % 25 == 0:
+                    store.save()
+                    log(f"  selenium: {n}/{len(todo)} tried, {stats['fixed']} got new photos, {stats['no_links']} had no links")
+        finally:
+            try:
+                driver.quit()
+            except Exception:
+                pass
+
+    threads = [threading.Thread(target=worker) for _ in range(max(1, workers))]
+    for th in threads:
+        th.start()
+    for th in threads:
+        th.join()
+    store.save()
+    left = len(todo_q)
+    if left:
+        log(f"  selenium stopped at the time limit; {left} restaurants continue on the next run")
+    log(f"  selenium done: {stats['tried']} tried, {stats['fixed']} got new photos, {stats['no_links']} had no links")
+    return stats["fixed"]
 
 
-def sync(restaurants, per=4, min_photos=3, workers=24, selenium=True, refresh_minutes=25, size_main=(640, 480),
+def sync(restaurants, per=4, min_photos=3, download_minutes=0, selenium_workers=3, workers=24, selenium=True, refresh_minutes=25, size_main=(640, 480),
          size_other=(400, 300), cache_dir=CACHE, log=print, driver_factory=make_driver, collector=collect_urls):
     """Fill r['local_photos'] (site-relative paths) for every restaurant. Returns a report dict."""
     store = Store(cache_dir)
@@ -247,16 +282,21 @@ def sync(restaurants, per=4, min_photos=3, workers=24, selenium=True, refresh_mi
         for u in r["photos"][:12]:
             if len(got) >= per:
                 break
-            if fetch_one(store, u, size_main if not got else size_other):
+            if fetch_one(store, u, size_main if not got else size_other, can_download()):
                 got.append(key_for(u))
         for u in store.data.get("fresh", {}).get(r["place_id"], []):   # links Selenium found on earlier runs
             if len(got) >= per:
                 break
-            if key_for(u) not in got and fetch_one(store, u, size_main if not got else size_other):
+            if key_for(u) not in got and fetch_one(store, u, size_main if not got else size_other, can_download()):
                 got.append(key_for(u))
         r["local_keys"] = got
 
     t0 = time.time()
+    dl_deadline = t0 + download_minutes * 60 if download_minutes else None
+
+    def can_download():
+        return dl_deadline is None or time.time() < dl_deadline
+
     with ThreadPoolExecutor(max_workers=workers) as ex:
         for n, _ in enumerate(ex.map(work, restaurants), 1):
             if n % 500 == 0:
@@ -270,7 +310,7 @@ def sync(restaurants, per=4, min_photos=3, workers=24, selenium=True, refresh_mi
     if selenium and missing:
         log(f"  {len(missing)} restaurants have fewer than {min_photos} working photos; refreshing from Google Maps (Selenium)")
         fixed = refresh_with_selenium(store, missing, per, size_main, size_other, refresh_minutes,
-                                      driver_factory, collector, log)
+                                      driver_factory, collector, log, selenium_workers)
         for r in missing:
             for u in r.pop("_fresh", []):
                 r["local_keys"].append(key_for(u))
@@ -280,7 +320,7 @@ def sync(restaurants, per=4, min_photos=3, workers=24, selenium=True, refresh_mi
     n_with = sum(1 for r in restaurants if r["local_photos"])
     dead = sum(1 for e in store.data["urls"].values() if e["s"] == "dead")
     return {"restaurants": len(restaurants), "with_photo": n_with, "without_photo": len(restaurants) - n_with,
-            "fixed_by_selenium": fixed, "dead_links_known": dead, "cache_dir": str(store.dir),
+            "fixed_by_selenium": fixed, "http_codes": {str(k): v for k, v in CODES.items()}, "dead_links_known": dead, "cache_dir": str(store.dir),
             "seconds": int(time.time() - t0)}
 
 

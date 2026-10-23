@@ -635,6 +635,7 @@ def main():
                     help="Test N random restaurants' photo links (needs internet) and report how many still load.")
     ap.add_argument("--sync-photos", action="store_true", default=os.environ.get("PHOTO_SYNC") == "1",
                     help="Download, verify (HTTP 200) and self-host restaurant photos (needs internet; Selenium refreshes dead ones).")
+    ap.add_argument("--photos-only", action="store_true", help="Only download/verify photos and refresh via Selenium, then stop (fills photo_cache/).")
     ap.add_argument("--no-selenium", action="store_true", default=os.environ.get("PHOTO_SELENIUM") == "0")
     ap.add_argument("--limit", type=int, default=0, help="Only build the first N listing rows (quick tests).")
     args = ap.parse_args()
@@ -654,8 +655,14 @@ def main():
         sys.exit(f"Only {len(restaurants)} restaurants loaded (minimum {args.min_restaurants}). "
                  "The sheet may be mid-sync. Nothing was built.")
     if args.sync_photos:
-        rep = photo_sync.sync(restaurants, per=int(cfg.get("photos_per_restaurant", 4)), min_photos=int(cfg.get("min_photos", 3)), selenium=not args.no_selenium,
-                              refresh_minutes=int(cfg.get("selenium_minutes", 25)))
+        rep = photo_sync.sync(restaurants, per=int(cfg.get("photos_per_restaurant", 4)), min_photos=int(cfg.get("min_photos", 3)),
+                              selenium=not args.no_selenium, refresh_minutes=int(cfg.get("selenium_minutes", 70)),
+                              download_minutes=int(os.environ.get("PHOTO_DOWNLOAD_MINUTES", "0") or 0),
+                              selenium_workers=int(cfg.get("selenium_workers", 3)))
+        print("  photo http codes:", rep.get("http_codes"))
+        if args.photos_only:
+            print("  photos-only run finished; cache saved.")
+            sys.exit(0)
         report["photo_sync"] = rep
         print(f"  photos: {rep['with_photo']} of {rep['restaurants']} restaurants have a verified photo "
               f"({rep['fixed_by_selenium']} recovered via Selenium, {rep['without_photo']} without, {rep['seconds']}s)")

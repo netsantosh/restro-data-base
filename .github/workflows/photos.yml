@@ -1,0 +1,56 @@
+name: photos
+
+# Fills the photo cache: downloads every restaurant photo, keeps only links that answer HTTP 200,
+# and uses Selenium (headless Chrome) on Google Maps to find fresh photos for restaurants that
+# have too few. Then it starts the site build, which publishes the verified photos.
+# Slow on the first runs (it works through the restaurants in batches); later runs are quick.
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 18 * * *"      # 23:30 IST every day
+
+permissions:
+  contents: read
+  actions: write
+
+concurrency:
+  group: photos
+  cancel-in-progress: false
+
+jobs:
+  photos:
+    runs-on: ubuntu-latest
+    timeout-minutes: 220
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: claude-website/requirements.txt
+      - run: pip install -r claude-website/requirements.txt
+      - name: Restore photo cache
+        uses: actions/cache/restore@v4
+        with:
+          path: claude-website/photo_cache
+          key: photo-cache-${{ github.run_id }}
+          restore-keys: photo-cache-
+      - name: Download, verify and refresh photos
+        working-directory: claude-website
+        env:
+          GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
+          DB_SHEET_ID: ${{ secrets.DB_SHEET_ID }}
+          CONTENT_SHEET_ID: ${{ secrets.CONTENT_SHEET_ID }}
+          PHOTO_SYNC: "1"
+          PHOTO_SELENIUM: "1"
+        run: python build.py --photos-only
+      - name: Save photo cache
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: claude-website/photo_cache
+          key: photo-cache-${{ github.run_id }}
+      - name: Publish the site with the new photos
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run claude-website.yml --repo ${{ github.repository }} --ref ${{ github.ref_name }}
