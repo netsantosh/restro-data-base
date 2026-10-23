@@ -10,6 +10,7 @@
 </div></section>
 <div class="wrap">
 
+  {% if not pager %}
   <section class="filters" aria-label="Filter restaurants">
     <label>Search
       <input id="flt-q" type="search" placeholder="Restaurant name">
@@ -31,6 +32,7 @@
       </select>
     </label>
   </section>
+  {% endif %}
 
   <div class="grid" id="grid">
   {% for r in restaurants %}{{ m.card(r) }}{% endfor %}
@@ -46,5 +48,5 @@
   {% endif %}
   <p class="more"><a href="{{ u(city.path) }}">All restaurants in {{ city.name }}</a> &nbsp;·&nbsp; <a href="{{ u(state.path) }}">Restaurants in {{ state.name }}</a></p>
 </div>
-<script>window.FILTER=true;</script>
+{% if not pager %}<script>window.FILTER=true;</script>{% endif %}
 {% endblock %}

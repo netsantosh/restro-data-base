@@ -615,7 +615,7 @@ def write_sitemap_and_robots(site):
     (site.out / "sitemap.xml").write_text(
         '<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9" xmlns:image="http://www.google.com/schemas/sitemap-image/1.1">\n'
         + "\n".join(urls) + "\n</urlset>\n", encoding="utf-8")
-    (site.out / "robots.txt").write_text(f"User-agent: *\nAllow: /\n\nSitemap: {base}{site.cfg['base_path']}/sitemap.xml\n",
+    (site.out / "robots.txt").write_text(f"User-agent: *\nAllow: /\nDisallow: {site.cfg['base_path']}/photo-audit/\n\nSitemap: {base}{site.cfg['base_path']}/sitemap.xml\n",
                                          encoding="utf-8")
     return len(urls)
 
@@ -697,6 +697,8 @@ def main():
     out.mkdir(parents=True)
     shutil.copytree(ROOT / "static", out / "static")
     if args.sync_photos:
+        ok_n, rej_n = photo_sync.write_review_page(restaurants, out, cfg["base_path"])
+        print(f"  review page /photo-audit/: {ok_n} shown, {rej_n} rejected examples")
         files, mb = photo_sync.copy_used(restaurants, out)
         print(f"  photos copied into the site: {files} files, {mb} MB (GitHub Pages limit is 1000 MB)")
         report["photo_mb"] = mb
