@@ -13,9 +13,9 @@
   "photo_api": "",
   "photo_resize": true,
   "page_size": 24,
-  "area_page_size": 100,
+  "area_page_size": 24,
   "photos_per_restaurant": 4,
   "min_photos": 3,
-  "selenium_minutes": 90,
+  "selenium_minutes": 60,
   "selenium_workers": 3
 }

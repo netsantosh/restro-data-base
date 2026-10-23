@@ -41,6 +41,7 @@ ERROR_RETRY_DAYS = 1     # timeouts, 5xx, 429: try again soon
 # PHOTO_MODE=cache (site build): only use photos the photos workflow already downloaded and checked.
 # No downloads, no OpenCV, no CLIP, so a deploy can never be held up or crashed by photo work.
 CACHE_ONLY = os.environ.get("PHOTO_MODE", "full") == "cache"
+MIN_LEVEL = int(os.environ.get("PHOTO_MIN_LEVEL", "3"))   # a photo is shown only after reaching this check level (3 = CLIP)
 PEOPLE_RETRY_DAYS = 90   # portrait/selfie/letter-avatar images are not retried for a long time
 FILTER_V = 3             # level reached by a photo that passed the full content check (see judge)
 REFRESH_RETRY_DAYS = 7   # Selenium refresh for a restaurant is attempted at most once per week
@@ -146,6 +147,8 @@ POSITIVE = ["a photo of food on a plate", "a photo of a dish served at a restaur
             "a photo of a restaurant menu", "a photo of a bar counter or kitchen", "a photo of desserts or a bakery"]
 NEGATIVE = ["a selfie of a person", "a portrait photo of a person", "a close-up of a person's face",
             "a group of people posing for a photo", "a profile picture", "a person standing outdoors",
+            "a man posing for a photo", "a woman posing for a photo", "a child or a baby", "a chef or staff portrait",
+            "a letter or initial on a coloured background", "a logo or an icon", "a cartoon or illustration",
             "a poster or advertisement with a lot of text", "a blurry dark photo", "a landscape or street with no restaurant",
             "a photo of a pet or animal", "a screenshot"]
 CLIP_MIN = 0.55                                     # share of probability that must fall on the positive labels
@@ -201,6 +204,18 @@ def judge(im, rank):
     return s >= CLIP_MIN, 3
 
 
+def _tiny(im):
+    """160x120 JPEG used by the review page for rejected photos."""
+    try:
+        c = im.copy()
+        c.thumbnail((160, 120))
+        out = io.BytesIO()
+        c.save(out, "JPEG", quality=60)
+        return out.getvalue()
+    except Exception:
+        return b""
+
+
 def _open(raw):
     im = Image.open(io.BytesIO(raw))
     im.load()
@@ -251,7 +266,7 @@ def download(url, size, session=None, timeout=20, rank=0):
             im = _open(resp.content)
             ok, level = judge(im, rank)
             if not ok:
-                return "people", b""
+                return "people", _tiny(im)
             _tl.level = level
             return "ok", _encode_im(im, size)
         except Exception:
@@ -259,39 +274,50 @@ def download(url, size, session=None, timeout=20, rank=0):
     return status, b""
 
 
+def _save_rejected(store, url, thumb_bytes):
+    """Keep a tiny picture of rejected photos so the review page can show what was filtered out."""
+    if not thumb_bytes:
+        return
+    n = store.data.setdefault("rej_n", 0)
+    if n >= 2500:
+        return
+    p = store.dir / "rejected" / f"{key_for(url)}.jpg"
+    if not p.exists():
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_bytes(thumb_bytes)
+        store.data["rej_n"] = n + 1
+
+
 def fetch_one(store, url, size, allow=True):
-    """True when the photo is cached (or downloaded now) and passed the content check."""
+    """True when the photo is cached (or downloaded now) and has passed the content check. Fails closed."""
     if is_avatar(url):
         return False
-    rank = photo_rank(url)
     if CACHE_ONLY:
-        if store.state(url) != "ok":
-            return False
-        return rank == 0 or store.level(url) >= 3
-    ready = clip_fn() is not None
-    if rank > 0 and not ready:                    # review photos are only trusted after the CLIP check
+        return store.state(url) == "ok" and store.level(url) >= MIN_LEVEL
+    if clip_fn() is None:                          # no classifier: show nothing rather than risk people photos
         return False
-    need = 3 if ready else 2
+    rank = photo_rank(url)
     st = store.state(url)
     if st == "ok":
-        if store.level(url) >= need:
+        if store.level(url) >= 3:
             return True
         p = store.path(key_for(url))              # cached under a weaker check: judge it again from disk
         try:
-            ok, level = judge(_open(p.read_bytes()), rank)
+            im = _open(p.read_bytes())
+            ok, level = judge(im, rank)
         except Exception:
-            ok, level = False, need
+            im, ok, level = None, False, 3
         if ok:
             store.mark(url, "ok", level)
             return True
         store.mark(url, "people")
+        if im is not None:
+            _save_rejected(store, url, _tiny(im))
         p.unlink(missing_ok=True)
         return False
-    if st:
+    if st or not allow:
         return False
-    if not allow:
-        return False
-    _tl.level = 2
+    _tl.level = 3
     try:
         status, data = download(url, size, rank=rank)
     except TypeError:                              # a replacement download() without the rank argument
@@ -300,9 +326,11 @@ def fetch_one(store, url, size, allow=True):
         p = store.path(key_for(url))
         p.parent.mkdir(parents=True, exist_ok=True)
         p.write_bytes(data)
-        store.mark(url, "ok", getattr(_tl, "level", 2))
+        store.mark(url, "ok", getattr(_tl, "level", 3))
     else:
         store.mark(url, status)
+        if status == "people":
+            _save_rejected(store, url, data)
     return status == "ok"
 
 
@@ -433,6 +461,9 @@ def sync(restaurants, per=4, min_photos=3, download_minutes=0, selenium_workers=
     """Fill r['local_photos'] (site-relative paths) for every restaurant. Returns a report dict."""
     store = Store(cache_dir)
     lock = threading.Lock()
+    if not CACHE_ONLY and clip_fn() is None:
+        raise SystemExit("The photo classifier (CLIP) could not be loaded, so no photo can be approved. "
+                         "Check the 'content check' line above; the live site keeps its current photos.")
 
     def work(r):
         got = []
@@ -514,3 +545,30 @@ if __name__ == "__main__":
                                      "name_variants": set()}, build.load_config().get("ignore_names", []))
     print(json.dumps(sync(rs, selenium=not a.no_selenium), indent=1))
     sys.exit(0)
+
+
+def write_review_page(restaurants, out_dir, base_path, cache_dir=CACHE, n=90):
+    """A hidden page (/photo-audit/) with random photos that are shown and random ones that were rejected."""
+    import html
+    import random
+    import shutil
+    out = Path(out_dir) / "photo-audit"
+    rej_src = Path(cache_dir) / "rejected"
+    rej = sorted(rej_src.glob("*.jpg")) if rej_src.exists() else []
+    random.Random(5).shuffle(rej)
+    (out / "rej").mkdir(parents=True, exist_ok=True)
+    cells_rej = []
+    for p in rej[:n]:
+        shutil.copyfile(p, out / "rej" / p.name)
+        cells_rej.append(f'<img src="{base_path}/photo-audit/rej/{p.name}" alt="" loading="lazy">')
+    shown = [(r["name"], r["local_photos"][0]) for r in restaurants if r.get("local_photos")]
+    random.Random(6).shuffle(shown)
+    cells_ok = [f'<figure><img src="{base_path}/{rp}" alt="" loading="lazy"><figcaption>{html.escape(nm)}</figcaption></figure>'
+                for nm, rp in shown[:n]]
+    page = ("<!doctype html><meta charset=utf-8><meta name=robots content=noindex,nofollow><title>Photo review</title>"
+            "<style>body{font:14px system-ui;margin:20px}.g{display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:8px}"
+            "img{width:100%;aspect-ratio:4/3;object-fit:cover;display:block}figure{margin:0}figcaption{font-size:11px;color:#555}</style>"
+            f"<h1>Shown on the site (random main photos)</h1><div class=g>{''.join(cells_ok)}</div>"
+            f"<h1>Rejected by the content check (random)</h1><div class=g>{''.join(cells_rej)}</div>")
+    (out / "index.html").write_text(page, encoding="utf-8")
+    return len(cells_ok), len(cells_rej)
