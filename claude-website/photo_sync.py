@@ -96,7 +96,7 @@ def _encode(raw, size):
     left, top = max(0, (im.width - w) // 2), max(0, (im.height - h) // 2)
     im = im.crop((left, top, min(im.width, left + w), min(im.height, top + h)))
     out = io.BytesIO()
-    im.save(out, "WEBP", quality=68, method=4)
+    im.save(out, "WEBP", quality=66, method=4)
     return out.getvalue()
 
 
@@ -211,16 +211,20 @@ def refresh_with_selenium(store, missing, per, size_main, size_other, max_minute
                 urls = collector(driver, r["google_maps_link"])
             except Exception:
                 continue
-            got = 0
-            for u in urls[:per + 4]:
-                if got >= per:
+            have = list(r["local_keys"])
+            new = []
+            for u in urls[:per + 8]:
+                if len(have) + len(new) >= per:
                     break
-                if fetch_one(store, u, size_main if got == 0 else size_other):
-                    r.setdefault("_fresh", []).append(u)
-                    got += 1
-            if got:
+                if key_for(u) in have:
+                    continue
+                if fetch_one(store, u, size_main if not have and not new else size_other):
+                    new.append(u)
+            if new:
                 fixed += 1
-                store.data.setdefault("fresh", {})[r["place_id"]] = r["_fresh"]
+                fresh = store.data.setdefault("fresh", {})
+                fresh[r["place_id"]] = (fresh.get(r["place_id"], []) + new)[:12]
+                r["_fresh"] = new
             if i % 25 == 0:
                 store.save()
     finally:
@@ -232,8 +236,8 @@ def refresh_with_selenium(store, missing, per, size_main, size_other, max_minute
     return fixed
 
 
-def sync(restaurants, per=4, workers=24, selenium=True, refresh_minutes=25, size_main=(640, 480),
-         size_other=(480, 360), cache_dir=CACHE, log=print, driver_factory=make_driver, collector=collect_urls):
+def sync(restaurants, per=4, min_photos=3, workers=24, selenium=True, refresh_minutes=25, size_main=(640, 480),
+         size_other=(400, 300), cache_dir=CACHE, log=print, driver_factory=make_driver, collector=collect_urls):
     """Fill r['local_photos'] (site-relative paths) for every restaurant. Returns a report dict."""
     store = Store(cache_dir)
     lock = threading.Lock()
@@ -245,12 +249,11 @@ def sync(restaurants, per=4, workers=24, selenium=True, refresh_minutes=25, size
                 break
             if fetch_one(store, u, size_main if not got else size_other):
                 got.append(key_for(u))
-        if not got:                                  # links Selenium found on an earlier run
-            for u in store.data.get("fresh", {}).get(r["place_id"], []):
-                if len(got) >= per:
-                    break
-                if fetch_one(store, u, size_main if not got else size_other):
-                    got.append(key_for(u))
+        for u in store.data.get("fresh", {}).get(r["place_id"], []):   # links Selenium found on earlier runs
+            if len(got) >= per:
+                break
+            if key_for(u) not in got and fetch_one(store, u, size_main if not got else size_other):
+                got.append(key_for(u))
         r["local_keys"] = got
 
     t0 = time.time()
@@ -261,10 +264,11 @@ def sync(restaurants, per=4, workers=24, selenium=True, refresh_minutes=25, size
                 log(f"  photos: {n}/{len(restaurants)} restaurants checked ({int(time.time() - t0)}s)")
     store.save()
 
-    missing = [r for r in restaurants if not r["local_keys"]]
+    # restaurants with fewer photos than the target get topped up from Google Maps, emptiest first
+    missing = sorted((r for r in restaurants if len(r["local_keys"]) < min_photos), key=lambda r: len(r["local_keys"]))
     fixed = 0
     if selenium and missing:
-        log(f"  {len(missing)} restaurants have no working photo; refreshing from Google Maps (Selenium)")
+        log(f"  {len(missing)} restaurants have fewer than {min_photos} working photos; refreshing from Google Maps (Selenium)")
         fixed = refresh_with_selenium(store, missing, per, size_main, size_other, refresh_minutes,
                                       driver_factory, collector, log)
         for r in missing:

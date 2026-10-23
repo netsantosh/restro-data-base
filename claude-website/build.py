@@ -654,7 +654,7 @@ def main():
         sys.exit(f"Only {len(restaurants)} restaurants loaded (minimum {args.min_restaurants}). "
                  "The sheet may be mid-sync. Nothing was built.")
     if args.sync_photos:
-        rep = photo_sync.sync(restaurants, per=int(cfg.get("photos_per_restaurant", 4)), selenium=not args.no_selenium,
+        rep = photo_sync.sync(restaurants, per=int(cfg.get("photos_per_restaurant", 4)), min_photos=int(cfg.get("min_photos", 3)), selenium=not args.no_selenium,
                               refresh_minutes=int(cfg.get("selenium_minutes", 25)))
         report["photo_sync"] = rep
         print(f"  photos: {rep['with_photo']} of {rep['restaurants']} restaurants have a verified photo "
