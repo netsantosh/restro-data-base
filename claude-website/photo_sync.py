@@ -25,7 +25,7 @@ from pathlib import Path
 import requests
 from PIL import Image
 
-from utils import clean_image, thumb
+from utils import clean_image, is_avatar, photo_rank, thumb
 
 CODES = collections.Counter()   # HTTP status codes seen this run (for the build log)
 ROOT = Path(__file__).parent
@@ -37,6 +37,8 @@ HEADERS = {
 }
 DEAD_RETRY_DAYS = 14     # 403/404/410: the link has expired, look again only after this long
 ERROR_RETRY_DAYS = 1     # timeouts, 5xx, 429: try again soon
+PEOPLE_RETRY_DAYS = 90   # portrait/selfie/letter-avatar images are not retried for a long time
+FILTER_V = 2             # bump to re-check every cached photo with the content filter
 REFRESH_RETRY_DAYS = 7   # Selenium refresh for a restaurant is attempted at most once per week
 
 
@@ -75,22 +77,55 @@ class Store:
         k = key_for(url)
         e = self.data["urls"].get(k)
         if e and e["s"] == "ok" and self.path(k).exists():
-            return "ok"
-        if e and e["s"] in ("dead", "err"):
-            limit = DEAD_RETRY_DAYS if e["s"] == "dead" else ERROR_RETRY_DAYS
+            return "ok" if e.get("v") == FILTER_V else "recheck"
+        if e and e["s"] in ("dead", "err", "people"):
+            limit = {"dead": DEAD_RETRY_DAYS, "err": ERROR_RETRY_DAYS, "people": PEOPLE_RETRY_DAYS}[e["s"]]
             if time.time() - e["t"] < limit * 86400:
                 return "skip"
         return None
 
     def mark(self, url, status):
         with self.lock:
-            self.data["urls"][key_for(url)] = {"s": status, "t": int(time.time())}
+            self.data["urls"][key_for(url)] = {"s": status, "t": int(time.time()), "v": FILTER_V}
+
+
+try:
+    import cv2
+    import numpy as np
+    _FACE = cv2.CascadeClassifier(cv2.data.haarcascades + "haarcascade_frontalface_default.xml")
+except Exception:                                   # opencv missing: skip the people check, keep everything else
+    cv2 = None
+    _FACE = None
+
+
+def looks_bad(im):
+    """True for letter avatars (flat colour with a letter) and portraits/selfies (a large face)."""
+    small = im.copy()
+    small.thumbnail((256, 256))
+    q = small.convert("RGB").quantize(colors=8)
+    hist = sorted(q.histogram(), reverse=True)
+    if sum(hist[:2]) / max(1, sum(hist)) >= 0.88:
+        return True
+    if cv2 is None:
+        return False
+    g = np.array(small.convert("L"))
+    g = cv2.equalizeHist(g)
+    min_side = max(24, int(min(g.shape) * 0.14))
+    faces = _FACE.detectMultiScale(g, scaleFactor=1.1, minNeighbors=6, minSize=(min_side, min_side))
+    return len(faces) > 0
+
+
+def _open(raw):
+    im = Image.open(io.BytesIO(raw))
+    im.load()
+    return im.convert("RGB")
 
 
 def _encode(raw, size):
-    im = Image.open(io.BytesIO(raw))
-    im.load()
-    im = im.convert("RGB")
+    return _encode_im(_open(raw), size)
+
+
+def _encode_im(im, size):
     w, h = size
     scale = max(w / im.width, h / im.height)
     if scale < 1:
@@ -127,14 +162,31 @@ def download(url, size, session=None, timeout=20):
             status = "dead"
             continue
         try:
-            return "ok", _encode(resp.content, size)
+            im = _open(resp.content)
+            if looks_bad(im):
+                return "people", b""
+            return "ok", _encode_im(im, size)
         except Exception:
             status = "dead"
     return status, b""
 
 
 def fetch_one(store, url, size, allow=True):
+    if is_avatar(url):
+        return False
     st = store.state(url)
+    if st == "recheck":                          # photo cached before the content filter existed
+        p = store.path(key_for(url))
+        try:
+            bad = looks_bad(_open(p.read_bytes()))
+        except Exception:
+            bad = True
+        if bad:
+            store.mark(url, "people")
+            p.unlink(missing_ok=True)
+            return False
+        store.mark(url, "ok")
+        return True
     if st:
         return st == "ok"
     if not allow:
@@ -149,7 +201,6 @@ def fetch_one(store, url, size, allow=True):
 
 
 PHOTO_RE = re.compile(r'https://lh3\.googleusercontent\.com/(?:p|gps-cs-s|grass-cs|geougc[^/]*)/[^"\'\\\s<>]+')
-AVATAR_HINTS = ("-p-rp-mo", "br100", "/a/", "/a-/", "/ogw/", "default-user")
 
 
 def _dismiss_consent(driver):
@@ -175,7 +226,7 @@ def collect_urls(driver, maps_link, wait=3.0):
     cands += [m.replace("\\u003d", "=").replace("\\u0026", "&") for m in PHOTO_RE.findall(driver.page_source)]
     found = []
     for src in cands:
-        if "googleusercontent.com" not in src or any(h in src for h in AVATAR_HINTS):
+        if "googleusercontent.com" not in src or is_avatar(src):
             continue
         src = clean_image(src)
         if src and src not in found:
@@ -279,7 +330,7 @@ def sync(restaurants, per=4, min_photos=3, download_minutes=0, selenium_workers=
 
     def work(r):
         got = []
-        for u in r["photos"][:12]:
+        for u in sorted((x for x in r["photos"] if not is_avatar(x)), key=photo_rank)[:14]:
             if len(got) >= per:
                 break
             if fetch_one(store, u, size_main if not got else size_other, can_download()):

@@ -4,16 +4,23 @@
 {% block main %}
 <section class="hero">
   <div class="wrap hero-in">
-    <p class="eyebrow">The restaurant guide</p>
-    <h1>{{ hero_title }}</h1>
-    <p class="hero-sub">Browse places to eat country by country, city by city and area by area. Compare Google Maps ratings and cuisines, then get the address, phone number, photos and directions.</p>
-    <div class="search search-lg" data-search>
-      <label class="vh" for="q-hero">Search restaurants</label>
-      <input id="q-hero" type="search" placeholder="Search restaurants or cities" autocomplete="off">
-      <button class="btn" type="button" data-search-go>Search</button>
-      <ul class="results" hidden></ul>
+    <div class="hero-copy">
+      <p class="eyebrow">The restaurant guide</p>
+      <h1>{{ hero_title }}</h1>
+      <p class="hero-sub">Browse places to eat country by country, city by city and area by area. Compare Google Maps ratings and cuisines, then get the address, phone number, photos and directions.</p>
+      <div class="search search-lg" data-search>
+        <label class="vh" for="q-hero">Search restaurants</label>
+        <input id="q-hero" type="search" placeholder="Search restaurants or cities" autocomplete="off">
+        <button class="btn" type="button" data-search-go>Search</button>
+        <ul class="results" hidden></ul>
+      </div>
+      <p class="quick"><span>Popular</span> {% for c in hero_cities %}<a href="{{ c.href }}">{{ c.name }}</a>{% endfor %}</p>
     </div>
-    <p class="quick"><span>Popular</span> {% for c in hero_cities %}<a href="{{ c.href }}">{{ c.name }}</a>{% endfor %}</p>
+    {% if hero_photos %}
+    <div class="hero-photos" aria-hidden="true">
+      {% for p in hero_photos %}<img src="{{ thumb(p, 640, 480) }}" alt="" loading="{{ 'eager' if loop.first else 'lazy' }}" referrerpolicy="no-referrer" onerror="this.remove()">{% endfor %}
+    </div>
+    {% endif %}
   </div>
 </section>
 

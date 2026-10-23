@@ -1,12 +1,14 @@
 {% extends "base.html" %}
 {% import "macros.html" as m %}
 {% block main %}
-<div class="wrap">
+<section class="banner"><div class="wrap">
   <header class="page-head">
     {{ m.breadcrumbs(crumbs) }}
     <h1>{{ h1 }}</h1>
     <p class="lede">{{ intro }}</p>
   </header>
+</div></section>
+<div class="wrap">
 
   <section class="filters" aria-label="Filter restaurants">
     <label>Search
