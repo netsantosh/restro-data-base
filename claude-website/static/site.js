@@ -141,6 +141,15 @@
     }
   })();
 
+  /* ---------- review slider ---------- */
+  document.querySelectorAll("[data-slider]").forEach(function (s) {
+    var tr = s.querySelector(".rev-track"), p = s.querySelector(".rev-prev"), n = s.querySelector(".rev-next");
+    function step(d) { tr.scrollBy({ left: d * Math.max(260, tr.clientWidth * 0.9), behavior: "smooth" }); }
+    p.addEventListener("click", function () { step(-1); });
+    n.addEventListener("click", function () { step(1); });
+    tr.addEventListener("keydown", function (e) { if (e.key === "ArrowRight") step(1); else if (e.key === "ArrowLeft") step(-1); });
+  });
+
   /* ---------- contact form (posts to the Apps Script web app; the email address is never on the site) ---------- */
   (function () {
     var f = document.getElementById("contact-form"), st = document.getElementById("form-status");
@@ -208,4 +217,11 @@
     empty.hidden = shown !== 0;
   }
   [q, cu, ra, so].forEach(function (el) { el.addEventListener("input", apply); el.addEventListener("change", apply); });
+})();
+(function () {
+  document.addEventListener("click", function (e) {
+    var c = e.target.closest && e.target.closest(".card");
+    if (!c || e.target.closest("a")) return;
+    var a = c.querySelector("h3 a"); if (a) location.href = a.href;
+  });
 })();

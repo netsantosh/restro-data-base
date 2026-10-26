@@ -17,6 +17,7 @@
     <h3><a href="{{ r.href }}">{{ r.name }}</a></h3>
     <p class="meta">{{ r.cuisine_short or 'Restaurant' }}{% if r.price %} · {{ r.price }}{% endif %}</p>
     <p class="meta">{{ r.area }}{% if r.rating %}<span class="rate"><span aria-hidden="true">★</span> {{ r.rating }}{% if r.reviews %} <small>({{ '{:,}'.format(r.reviews) }})</small>{% endif %}</span>{% endif %}</p>
+    <a class="card-cta" href="{{ r.href }}" aria-label="View {{ r.name }}">View details <span aria-hidden="true">&rarr;</span></a>
   </div>
 </article>
 {% endmacro %}

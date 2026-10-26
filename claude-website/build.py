@@ -80,6 +80,19 @@ class Node:
         return list(reversed(chain))
 
 
+def load_reviews(rec, limit=10):
+    """Optional columns review_1_text, review_1_author, review_1_rating, review_1_time ... (up to 10)."""
+    out = []
+    for n in range(1, limit + 1):
+        text = re.sub(r"\s+", " ", s(rec.get(f"review_{n}_text"))).strip()
+        if len(text) < 15:
+            continue
+        rt = to_float(rec.get(f"review_{n}_rating"))
+        out.append({"text": text[:600], "author": s(rec.get(f"review_{n}_author")) or "Google user",
+                    "rating": int(round(rt)) if rt else 0, "when": s(rec.get(f"review_{n}_time"))})
+    return out
+
+
 def load_restaurants(df, report, ignore_names=()):
     ignore = {n.strip().lower() for n in ignore_names}
     rows, seen = [], {}
@@ -112,6 +125,8 @@ def load_restaurants(df, report, ignore_names=()):
             if u and u not in photos:
                 photos.append(u)
         r["photos"] = photos
+        r["reviews_link"] = s(rec.get("google_reviews_link"))
+        r["review_list"] = load_reviews(rec)
         pid = r["place_id"]
         if pid in seen:                     # duplicate place_id: keep the newest scrape
             report["duplicates_dropped"] += 1
@@ -345,8 +360,8 @@ def pick(path, options):
 
 INTRO_VARIANTS = {
     "area": [
-        "Hungry in {place}? This guide ranks the restaurants in the area by Google Maps rating, so the best reviewed "
-        "places come first. Each listing shows the cuisine, address and phone number, plus photos where available, "
+        "Hungry in {place}? Browse the restaurants in the area and open any listing for the "
+        "rating, cuisine, address and phone number, plus photos where available, "
         "and a tap takes you to directions. {cuisines}Use the filters to narrow by cuisine or rating.",
         "Planning a meal in {place}? Compare restaurants in the area side by side: ratings from Google Maps, cuisine "
         "type, address and phone number, with photos to help you choose. Start with the top rated places below, or "
@@ -387,7 +402,7 @@ def generic_intro(node):
 
 
 def generic_desc(node):
-    return clip(f"Best restaurants in {place_label(node)}: top rated places ranked by Google Maps rating, with cuisines, "
+    return clip(f"Best restaurants in {place_label(node)}: browse top rated places with cuisines, "
                 "photos, addresses, phone numbers and directions.", 155)
 
 
@@ -447,7 +462,7 @@ def render_place(site, node, content, report):
                           f"Page {page} | {name}"], 60)
             pschema = [finalize_breadcrumb_schema(breadcrumb_schema(site, pcrumbs), site.canonical(page_path(node.path, page)))]
             site.write(page_path(node.path, page), "place.html", indexable=bool(c), sitemap=False, lastmod=node.lastmod,
-                       title=ptitle, description=clip(f"More restaurants in {name}, ranked by Google Maps rating. Page {page} "
+                       title=ptitle, description=clip(f"More restaurants in {name}, with ratings, photos and directions. Page {page} "
                                                       f"of {total}.", 155),
                        schema=pschema, crumbs=pcrumbs, node=node, h1=h1, top_intro=top_intro,
                        bottom_intro=[], sections=[], faqs=[], tiles=[], tiles_heading="", secondary=None, listing=chunk,
@@ -595,9 +610,9 @@ def node_photo(node):
 
 
 HOME_FAQS = [
-    ("How does {site} rank restaurants?",
-     "Lists are ordered by Google Maps rating, adjusted for the number of reviews. A place rated 4.8 by thousands of "
-     "diners ranks above a 5.0 from only a handful, so the order is more reliable than a plain star sort."),
+    ("How do I find a good restaurant on {site}?",
+     "Pick your city, choose a neighbourhood, and open any restaurant to see its rating, photos, address, phone "
+     "number and directions. Area pages also let you filter by cuisine."),
     ("Where do the ratings and photos come from?",
      "Ratings, review counts, addresses, phone numbers and photos come from public Google Maps listings. The ratings "
      "are Google's figures, not reviews written on {site}. Photos are checked automatically before they are shown."),
@@ -655,7 +670,7 @@ def render_home(site, root, all_rest):
 
 
 STATIC_PAGES = {
-    "about": ("About", "about.html", "About {site}: how this restaurant guide is built, where the data comes from and how lists are ranked."),
+    "about": ("About", "about.html", "About {site}: how this restaurant guide is built, where the data comes from and how to find the right restaurant."),
     "contact": ("Contact", "contact.html", "Contact {site} to report a correction, a closed restaurant or a listing removal, or to get in touch."),
     "privacy-policy": ("Privacy Policy", "privacy.html", "How {site} handles visitor data, cookies, third-party services and messages sent through the contact form."),
     "terms": ("Terms of Use", "terms.html", "The terms for using {site}, including a disclaimer about restaurant details, ratings and photos."),

@@ -65,6 +65,21 @@
     </aside>
   </div>
 
+  {% if r.review_list %}
+  <section class="reviews" aria-labelledby="rev-h" data-slider>
+    <div class="rev-head"><h2 id="rev-h">What diners say</h2>
+      <div class="rev-nav"><button type="button" class="rev-prev" aria-label="Previous review">&lsaquo;</button><button type="button" class="rev-next" aria-label="Next review">&rsaquo;</button></div></div>
+    <ul class="rev-track" tabindex="0" aria-label="Reviews from Google Maps">
+      {% for v in r.review_list %}
+      <li class="rev"><p class="rev-stars" aria-label="{{ v.rating }} out of 5">{% if v.rating %}{{ '★' * v.rating }}{{ '☆' * (5 - v.rating) }}{% endif %}</p>
+        <blockquote>{{ v.text }}</blockquote>
+        <p class="rev-by">{{ v.author }}{% if v.when %} &middot; {{ v.when }}{% endif %}</p></li>
+      {% endfor %}
+    </ul>
+    <p class="small">Reviews are written by Google Maps users.{% if r.reviews_link %} <a href="{{ r.reviews_link }}" rel="nofollow noopener" target="_blank">Read all {{ '{:,}'.format(r.reviews) if r.reviews else '' }} reviews on Google</a>{% endif %}</p>
+  </section>
+  {% endif %}
+
   <section class="article rest-about">
     <h2>About {{ r.name }}</h2>
     {% for p in r.about %}<p>{{ p }}</p>{% endfor %}
