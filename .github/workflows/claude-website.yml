@@ -39,6 +39,12 @@ jobs:
           path: claude-website/photo_cache
           key: photo-cache-${{ github.run_id }}
           restore-keys: photo-cache-
+      - name: Restore review cache
+        uses: actions/cache/restore@v4
+        with:
+          path: claude-website/review_cache
+          key: review-cache-${{ github.run_id }}
+          restore-keys: review-cache-
       - name: Build site from the two Google Sheets
         working-directory: claude-website
         env:

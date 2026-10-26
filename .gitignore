@@ -13,3 +13,4 @@ claude-website/dist/
 claude-website/build_report.json
 
 claude-website/photo_cache/
+claude-website/review_cache/
