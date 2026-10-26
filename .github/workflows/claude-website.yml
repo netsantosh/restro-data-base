@@ -47,8 +47,8 @@ jobs:
           CONTENT_SHEET_ID: ${{ secrets.CONTENT_SHEET_ID }}
           SITE_URL: ${{ vars.SITE_URL }}
           BASE_PATH: ${{ vars.BASE_PATH }}
-          SITE_NAME: ${{ vars.SITE_NAME }}
-          CONTACT_EMAIL: ${{ vars.CONTACT_EMAIL }}
+          CONTACT_API: ${{ vars.CONTACT_API }}
+          CUSTOM_DOMAIN: ${{ vars.CUSTOM_DOMAIN }}
           PHOTO_API: ${{ vars.PHOTO_API }}
           PHOTO_SYNC: "1"                # use verified, self-hosted photos from the cache
           PHOTO_MODE: cache              # only use photos the "photos" workflow already checked; no downloads here

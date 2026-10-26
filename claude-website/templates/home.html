@@ -7,10 +7,10 @@
     <div class="hero-copy">
       <p class="eyebrow">The restaurant guide</p>
       <h1>{{ hero_title }}</h1>
-      <p class="hero-sub">Browse places to eat country by country, city by city and area by area. Compare Google Maps ratings and cuisines, then get the address, phone number, photos and directions.</p>
+      <p class="hero-sub">{{ site.site_name }} is a city-by-city guide to where to eat. Compare Google Maps ratings, browse photos, and get the address, phone number and directions in a tap.</p>
       <div class="search search-lg" data-search>
         <label class="vh" for="q-hero">Search restaurants</label>
-        <input id="q-hero" type="search" placeholder="Search restaurants or cities" autocomplete="off">
+        <input id="q-hero" type="search" placeholder="Search restaurants, areas or cities" autocomplete="off">
         <button class="btn" type="button" data-search-go>Search</button>
         <ul class="results" hidden></ul>
       </div>
@@ -24,39 +24,66 @@
   </div>
 </section>
 
+<section class="trust" aria-label="What you get">
+  <ul class="wrap trust-in">
+    <li><strong>Google Maps ratings</strong><span>Ranked by rating and review volume</span></li>
+    <li><strong>Real photos</strong><span>Checked before they are shown</span></li>
+    <li><strong>Call or navigate</strong><span>Phone and directions on every page</span></li>
+    <li><strong>Browse by area</strong><span>From city down to neighbourhood</span></li>
+  </ul>
+</section>
+
 <div class="wrap">
+  {% if multi %}
   <section class="block">
-    <div class="block-head"><h2>Browse by country</h2></div>
+    <div class="block-head"><h2>Choose a country</h2></div>
     {{ m.tiles(country_tiles) }}
   </section>
+  {% endif %}
 
   <section class="block">
-    <div class="block-head"><h2>Popular cities</h2></div>
+    <div class="block-head"><h2>Popular cities</h2><p class="small">Start with a city, then narrow down to your neighbourhood.</p></div>
     {{ m.tiles(city_tiles) }}
   </section>
 
+  {% for row in city_rows %}
   <section class="block">
-    <div class="block-head"><h2>Top rated restaurants</h2><p class="small">Ranked by Google Maps rating and number of reviews.</p></div>
-    <div class="grid">{% for r in top %}{{ m.card(r) }}{% endfor %}</div>
+    <div class="block-head"><h2>Top rated restaurants in {{ row.name }}</h2><a class="more-link" href="{{ row.href }}">See all in {{ row.name }} &rarr;</a></div>
+    <div class="grid">{% for r in row.restaurants %}{{ m.card(r) }}{% endfor %}</div>
   </section>
+  {% endfor %}
 </div>
 
 <section class="band">
   <div class="wrap">
-    <h2>How it works</h2>
-    <ol class="steps">
-      <li><h3>Pick a place</h3><p>Choose a country, then a city and an area. Every area has its own list of restaurants.</p></li>
-      <li><h3>Compare options</h3><p>Filter by cuisine, sort by rating or reviews, and look through photos.</p></li>
-      <li><h3>Go and enjoy</h3><p>Open a restaurant for its address, phone number and directions on Google Maps.</p></li>
-    </ol>
+    <h2>Why people use {{ site.site_name }}</h2>
+    <ul class="features">
+      <li><h3>Decide faster</h3><p>See the rating, cuisine, price level and photos side by side instead of opening a dozen tabs.</p></li>
+      <li><h3>Find the right neighbourhood</h3><p>Every city is split into areas, each with its own list of restaurants, best rated first.</p></li>
+      <li><h3>Filter what matters</h3><p>On area pages, narrow the list by cuisine or minimum rating and sort by most reviewed.</p></li>
+      <li><h3>Everything to get there</h3><p>The address, phone number, website and directions are one tap away on every restaurant page.</p></li>
+    </ul>
   </div>
 </section>
 
 <div class="wrap">
-  <section class="article">
-    <h2>About {{ site.site_name }}</h2>
-    <p>{{ site.site_name }} is a restaurant directory built around how people actually choose where to eat: first the destination, then the neighbourhood, then the place. Each area page lists the restaurants there with their cuisine, rating, address and contact details, so you can compare quickly.</p>
-    <p>Ratings and review counts shown on this site are taken from public Google Maps listings and are refreshed when the listings are updated. They are not reviews written on this site. If a place has closed or moved, <a href="{{ u('contact') }}">let us know</a> and we will fix it.</p>
+  <section class="block">
+    <div class="block-head"><h2>Most loved right now</h2><p class="small">Ranked by Google Maps rating and number of reviews.</p></div>
+    <div class="grid">{% for r in top %}{{ m.card(r) }}{% endfor %}</div>
+  </section>
+
+  <section class="block faq-block">
+    <h2>Questions people ask</h2>
+    <div class="faq-list">
+      {% for f in faqs %}
+      <details{% if loop.first %} open{% endif %}><summary>{{ f.q }}</summary><p>{{ f.a }}</p></details>
+      {% endfor %}
+    </div>
+  </section>
+
+  <section class="cta-band">
+    <div><h2>See a mistake or own a restaurant?</h2><p>Tell us what is wrong or ask for a listing to be updated or removed. We will review every request.</p></div>
+    <a class="btn btn-invert" href="{{ u('contact') }}">Contact us</a>
   </section>
 </div>
 {% endblock %}

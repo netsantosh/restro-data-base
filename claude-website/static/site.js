@@ -132,6 +132,38 @@
     } else Array.prototype.forEach.call(empties, fill);
   }
 
+  /* ---------- home: open with ?q=... (used by the site search action) ---------- */
+  (function () {
+    var m = location.search.match(/[?&]q=([^&]*)/), hb = document.getElementById("q-hero");
+    if (m && hb) {
+      try { hb.value = decodeURIComponent(m[1].replace(/\+/g, " ")); } catch (e) { return; }
+      hb.dispatchEvent(new Event("input"));
+    }
+  })();
+
+  /* ---------- contact form (posts to the Apps Script web app; the email address is never on the site) ---------- */
+  (function () {
+    var f = document.getElementById("contact-form"), st = document.getElementById("form-status");
+    if (!f) return;
+    function say(msg, ok) { st.hidden = false; st.textContent = msg; st.className = "form-status " + (ok ? "ok" : "bad"); }
+    f.addEventListener("submit", function (e) {
+      e.preventDefault();
+      var d = new FormData(f);
+      if (d.get("website")) return;                                         // honeypot: bots fill this in
+      if (!f.checkValidity()) { f.reportValidity(); return; }
+      var api = f.dataset.api || S.contactApi;
+      if (!api) { say("The contact form is not switched on yet. Please try again later.", false); return; }
+      var btn = f.querySelector("button[type=submit]");
+      btn.disabled = true; btn.textContent = "Sending...";
+      var body = new URLSearchParams();
+      d.forEach(function (v, k) { body.append(k, v); });
+      fetch(api, { method: "POST", mode: "no-cors", body: body })
+        .then(function () { f.reset(); say("Thank you. Your message has been sent and we will reply by email.", true); })
+        .catch(function () { say("Sorry, the message could not be sent. Please try again in a moment.", false); })
+        .then(function () { btn.disabled = false; btn.textContent = "Send message"; });
+    });
+  })();
+
   /* ---------- photo gallery lightbox (restaurant pages) ---------- */
   (function () {
     var box = document.getElementById("lightbox");

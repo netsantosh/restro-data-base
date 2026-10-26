@@ -1,5 +1,5 @@
 {
-  "site_name": "Restro Guide",
+  "site_name": "Vanmeya",
   "base_url": "https://example.com",
   "base_path": "",
   "locale": "en",
@@ -7,9 +7,7 @@
   "ignore_names": [
     "Google Maps"
   ],
-  "contact_email": "hello@example.com",
   "tagline": "Find where to eat, city by city",
-  "places_api_key": "",
   "photo_api": "",
   "photo_resize": true,
   "page_size": 24,
@@ -17,5 +15,7 @@
   "photos_per_restaurant": 4,
   "min_photos": 3,
   "selenium_minutes": 60,
-  "selenium_workers": 3
+  "selenium_workers": 3,
+  "contact_api": "",
+  "custom_domain": ""
 }

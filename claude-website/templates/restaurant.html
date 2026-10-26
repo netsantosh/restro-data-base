@@ -65,6 +65,12 @@
     </aside>
   </div>
 
+  <section class="article rest-about">
+    <h2>About {{ r.name }}</h2>
+    {% for p in r.about %}<p>{{ p }}</p>{% endfor %}
+    {{ m.faq(r.faqs) }}
+  </section>
+
   {% if related_area %}
   <section class="block">
     <h2>More restaurants in {{ r.area }}</h2>
@@ -78,5 +84,9 @@
     <div class="grid">{% for x in same_cuisine %}{{ m.card(x) }}{% endfor %}</div>
   </section>
   {% endif %}
+</div>
+<div class="mbar" role="group" aria-label="Quick actions">
+  {% if r.tel %}<a class="btn" href="tel:{{ r.tel }}">Call</a>{% endif %}
+  {% if r.directions %}<a class="btn" href="{{ r.directions }}" rel="nofollow noopener" target="_blank">Directions</a>{% endif %}
 </div>
 {% endblock %}

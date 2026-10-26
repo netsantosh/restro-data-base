@@ -1,15 +1,30 @@
 {% extends "base.html" %}
 {% import "macros.html" as m %}
 {% block main %}
-<div class="wrap narrow">
-{{ m.breadcrumbs(crumbs) }}
-<h1>About {{ site.site_name }}</h1>
-<div class="article">
-<p>{{ site.site_name }} is a restaurant directory. It lists restaurants by country, state, city and area so you can compare places to eat in one place.</p>
-<h2>Where the data comes from</h2>
-<p>Names, addresses, phone numbers, ratings and photos are collected from public Google Maps listings. Ratings and review counts shown here are Google Maps figures and are refreshed when the listings are updated. They are not reviews written on this site.</p>
-<h2>Corrections</h2>
-<p>If a restaurant has closed, moved or has wrong details, please <a href="{{ u('contact') }}">contact us</a> with the page address and we will correct it.</p>
-</div>
+{{ m.banner(crumbs, "About " ~ site.site_name, site.site_name ~ " is a city-by-city restaurant guide. It brings ratings, photos, addresses and directions together so you can decide where to eat in a few taps.") }}
+<div class="wrap">
+  <section class="block">
+    <ol class="steps steps-light">
+      <li><h3>Browse</h3><p>Pick a country, a city and then a neighbourhood. Every area has its own list of restaurants.</p></li>
+      <li><h3>Compare</h3><p>Restaurants are listed from the best rated downwards. Filter by cuisine or rating and look through photos.</p></li>
+      <li><h3>Visit</h3><p>Open a restaurant for its address and phone number, then call or get directions in one tap.</p></li>
+    </ol>
+  </section>
+  <div class="article narrow-article">
+    <h2>What {{ site.site_name }} is for</h2>
+    <p>Choosing a restaurant usually means jumping between maps, review apps and photo galleries. {{ site.site_name }} puts the useful parts on one page: the cuisine, the rating, a few photos, the address, the phone number and a link to directions. The guide is organised the way people actually decide, first the city, then the neighbourhood, then the place.</p>
+    <h2>Where the information comes from</h2>
+    <p>Names, addresses, phone numbers, ratings, review counts and photos are collected from public Google Maps listings. Ratings and review counts are Google Maps figures. They are not reviews written on this site, and we do not write or sell reviews.</p>
+    <p>Photos are checked automatically before they are shown, and profile pictures and images that do not show food or a restaurant are removed. The check is not perfect, so if you see a photo that does not belong, please <a href="{{ u('contact') }}">tell us</a>.</p>
+    <h2>How restaurants are ranked</h2>
+    <p>Lists start with the best rated places. The order uses the Google Maps rating together with the number of reviews, so a restaurant with a 4.8 rating from thousands of diners ranks above one with a 5.0 from only a few. Use the filters on area pages to narrow the list by cuisine or rating.</p>
+    <h2>Keeping details accurate</h2>
+    <p>Restaurants open, close, move and change their numbers. The data is refreshed regularly, but some details can be out of date. Always confirm opening hours with the restaurant before you travel.</p>
+    <p>If you spot a mistake, a closed restaurant or a wrong photo, or if you own a restaurant and want details corrected or a listing removed, use the <a href="{{ u('contact') }}">contact page</a> and include the address of the page. We will review every request.</p>
+  </div>
+  <section class="cta-band">
+    <div><h2>Found something that needs fixing?</h2><p>Tell us which page and what should change. It takes a minute.</p></div>
+    <a class="btn btn-invert" href="{{ u('contact') }}">Contact us</a>
+  </section>
 </div>
 {% endblock %}

@@ -1,19 +1,27 @@
 {% extends "base.html" %}
 {% import "macros.html" as m %}
 {% block main %}
-<div class="wrap narrow">
-{{ m.breadcrumbs(crumbs) }}
-<h1>Privacy Policy</h1>
-<div class="article">
-<p>This page explains what information {{ site.site_name }} handles when you visit the site.</p>
-<h2>Information we collect</h2>
-<p>We do not ask you to create an account or submit personal details to browse the site. Our servers and hosting provider may log technical data such as your IP address, browser type and the pages you open.</p>
-<h2>Cookies and advertising</h2>
-<p>Third-party vendors, including Google, may use cookies to serve ads based on your visits to this and other websites. You can opt out of personalised advertising in Google's Ads Settings. Analytics tools, if used, collect aggregated usage data about how pages are viewed.</p>
-<h2>External links</h2>
-<p>Pages link to Google Maps and to restaurant websites. We do not control those sites and their privacy practices apply when you visit them.</p>
-<h2>Contact</h2>
-<p>For privacy questions, email <a href="mailto:{{ site.contact_email }}">{{ site.contact_email }}</a>.</p>
-</div>
+{{ m.banner(crumbs, "Privacy Policy", "What " ~ site.site_name ~ " collects, what it does not, and the choices you have. Last updated " ~ built_on ~ ".") }}
+<div class="wrap">
+  <div class="article narrow-article">
+    <h2>The short version</h2>
+    <p>You can browse {{ site.site_name }} without an account and without giving us any personal details. We do not sell personal information. The only personal information we receive is what you choose to send through the contact form.</p>
+    <h2>Information we receive</h2>
+    <p><strong>Contact form.</strong> If you write to us, we receive your name, email address, the topic, an optional page address and your message. We use them only to read and reply to your message and to fix the listing you wrote about. We keep a message only as long as we need it for that purpose.</p>
+    <p><strong>Server logs.</strong> Our hosting provider may record technical data such as your IP address, browser type, device and the pages requested, as most web hosts do, to keep the site secure and working.</p>
+    <h2>Cookies and local storage</h2>
+    <p>{{ site.site_name }} does not set its own cookies. The site may store small, non-personal items in your browser's local storage, for example to remember a recently looked-up photo, so pages load faster. You can clear this at any time in your browser settings.</p>
+    <h2>Third-party services</h2>
+    <p>Restaurant pages can show an embedded Google Map and link to Google Maps and to restaurants' own websites. When you load or follow those, the provider may collect data and set cookies under its own privacy policy, which we do not control. Maps are loaded only on restaurant pages.</p>
+    <p>We do not currently run advertising or analytics on this site. If we add them in future, we will update this page to name the services and explain how to opt out before they start.</p>
+    <h2>Restaurant information</h2>
+    <p>Restaurant names, addresses, phone numbers, ratings and photos are taken from public Google Maps listings and describe businesses. If you are the owner and want something corrected or removed, use the <a href="{{ u('contact') }}">contact page</a>.</p>
+    <h2>Your choices</h2>
+    <p>You can ask us what we hold about you, or ask us to delete a message you sent, through the <a href="{{ u('contact') }}">contact page</a>. We will respond within a reasonable time. Our content is not directed at children under 13, and we do not knowingly collect their information.</p>
+    <h2>Changes to this policy</h2>
+    <p>We may update this policy from time to time. The date at the top shows when it last changed. Continued use of the site after a change means you accept the updated policy.</p>
+    <h2>Questions</h2>
+    <p>For anything about privacy, please <a href="{{ u('contact') }}">contact us</a>.</p>
+  </div>
 </div>
 {% endblock %}
