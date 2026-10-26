@@ -66,3 +66,13 @@
 </nav>
 {% endif %}
 {% endmacro %}
+
+{% macro banner(crumbs, h1, lede=None) %}
+<section class="banner"><div class="wrap">
+  <header class="page-head">
+    {{ breadcrumbs(crumbs) }}
+    <h1>{{ h1 }}</h1>
+    {% if lede %}<p class="lede">{{ lede }}</p>{% endif %}
+  </header>
+</div></section>
+{% endmacro %}

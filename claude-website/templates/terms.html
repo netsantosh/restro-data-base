@@ -1,0 +1,23 @@
+{% extends "base.html" %}
+{% import "macros.html" as m %}
+{% block main %}
+{{ m.banner(crumbs, "Terms of Use", "The rules for using " ~ site.site_name ~ ", and a disclaimer about restaurant details, ratings and photos. Last updated " ~ built_on ~ ".") }}
+<div class="wrap">
+  <div class="article narrow-article">
+    <h2>Using this site</h2>
+    <p>By using {{ site.site_name }} you agree to these terms. You may use the site for personal, non-commercial purposes such as finding a place to eat. Please do not copy the site at scale, scrape it, or try to disrupt it.</p>
+    <h2>Information may change</h2>
+    <p>Restaurant details, opening hours, prices, menus and ratings change often. We collect them from public sources and refresh them regularly, but we cannot guarantee that they are complete, current or error-free. Please confirm important details, such as opening hours and bookings, with the restaurant before you visit.</p>
+    <h2>Ratings and reviews</h2>
+    <p>Ratings and review counts are taken from Google Maps. They are not reviews written by {{ site.site_name }}, and they represent the opinions of Google users, not ours. Lists are ordered by an automatic formula and are not a recommendation or an endorsement.</p>
+    <h2>Photos and trademarks</h2>
+    <p>Restaurant names, logos and photos belong to their owners or to the people who took them. They appear here to describe the listing. If you own an image or a name and want it removed, <a href="{{ u('contact') }}">contact us</a> with the page address and we will review the request.</p>
+    <h2>Links to other sites</h2>
+    <p>Pages link to Google Maps and to restaurant websites. We do not control those sites and are not responsible for their content or practices.</p>
+    <h2>Limits of liability</h2>
+    <p>The site is provided as is. To the extent the law allows, {{ site.site_name }} is not liable for any loss or inconvenience arising from relying on information shown here, for example a restaurant that has closed or changed its hours.</p>
+    <h2>Changes</h2>
+    <p>We may update these terms. The date at the top shows the latest version. Questions about them can be sent through the <a href="{{ u('contact') }}">contact page</a>.</p>
+  </div>
+</div>
+{% endblock %}

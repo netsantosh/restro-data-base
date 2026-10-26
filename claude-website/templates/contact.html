@@ -1,11 +1,49 @@
 {% extends "base.html" %}
 {% import "macros.html" as m %}
 {% block main %}
-<div class="wrap narrow">
-{{ m.breadcrumbs(crumbs) }}
-<h1>Contact</h1>
-<div class="article">
-<p>To report a correction, a closed restaurant, or a request to remove a listing, email <a href="mailto:{{ site.contact_email }}">{{ site.contact_email }}</a>. Please include the address of the page you are writing about.</p>
-</div>
+{{ m.banner(crumbs, "Contact " ~ site.site_name, "Report a correction, a closed restaurant or a photo that does not belong, ask for a listing to be removed, or get in touch about anything else.") }}
+<div class="wrap">
+  <div class="contact-grid">
+    <form class="cform" id="contact-form" novalidate data-api="{{ site.contact_api }}">
+      <h2>Send us a message</h2>
+      <label>Your name
+        <input name="name" type="text" autocomplete="name" required maxlength="80">
+      </label>
+      <label>Your email
+        <input name="email" type="email" autocomplete="email" required maxlength="120">
+      </label>
+      <label>What is this about?
+        <select name="topic">
+          <option>Correction to a listing</option>
+          <option>Restaurant closed or moved</option>
+          <option>Photo that does not belong</option>
+          <option>Remove a listing</option>
+          <option>Business or partnership</option>
+          <option>Something else</option>
+        </select>
+      </label>
+      <label>Page address (optional)
+        <input name="page" type="url" placeholder="https://" maxlength="300">
+      </label>
+      <label>Message
+        <textarea name="message" rows="6" required minlength="10" maxlength="3000"></textarea>
+      </label>
+      <p class="hp" aria-hidden="true"><label>Leave this empty <input name="website" type="text" tabindex="-1" autocomplete="off"></label></p>
+      <button class="btn" type="submit">Send message</button>
+      <p class="form-note small">Your details are used only to reply to you. See the <a href="{{ u('privacy-policy') }}">Privacy Policy</a>.</p>
+      <p class="form-status" id="form-status" role="status" hidden></p>
+    </form>
+    <aside class="panel side">
+      <h2>How we can help</h2>
+      <ul class="ticks">
+        <li>Fix a wrong address, phone number or name</li>
+        <li>Remove a restaurant that has closed</li>
+        <li>Replace or remove a photo</li>
+        <li>Remove a listing at the owner's request</li>
+        <li>Questions about the site</li>
+      </ul>
+      <p>We aim to reply within a few working days. Including the address of the page you are writing about helps us fix things faster.</p>
+    </aside>
+  </div>
 </div>
 {% endblock %}

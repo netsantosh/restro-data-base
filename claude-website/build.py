@@ -43,11 +43,13 @@ MAX_FAQS = 8
 def load_config():
     cfg = json.loads((ROOT / "config.json").read_text(encoding="utf-8"))
     for env, key in (("SITE_URL", "base_url"), ("BASE_PATH", "base_path"),
-                     ("SITE_NAME", "site_name"), ("CONTACT_EMAIL", "contact_email"),
-                     ("PHOTO_API", "photo_api")):
+                     ("SITE_NAME", "site_name"), ("PHOTO_API", "photo_api"),
+                     ("CONTACT_API", "contact_api"), ("CUSTOM_DOMAIN", "custom_domain")):
         if os.environ.get(env, "").strip():
             cfg[key] = os.environ[env].strip()
     cfg.setdefault("photo_api", "")
+    cfg.setdefault("contact_api", "")
+    cfg.setdefault("custom_domain", "")
     cfg["base_url"] = cfg["base_url"].rstrip("/")
     bp = cfg.get("base_path", "").strip().strip("/")
     cfg["base_path"] = f"/{bp}" if bp else ""
@@ -235,7 +237,7 @@ class Site:
                                trim_blocks=True, lstrip_blocks=True)
         self.env.filters["paragraphs"] = paragraphs
         self.env.globals.update(thumb=self.thumb, initials=initials, site=cfg, u=self.u, asset=self.asset,
-                                year=datetime.now().year)
+                                year=datetime.now().year, built_on=datetime.now().strftime("%d %B %Y").lstrip("0"))
 
     def thumb(self, url, w=400, h=300):
         return thumb(url, w, h) if self.cfg.get("photo_resize", True) else url
@@ -343,35 +345,33 @@ def pick(path, options):
 
 INTRO_VARIANTS = {
     "area": [
-        "Looking for the best restaurants in {place}? Browse top rated places to eat, from casual cafes and family "
-        "restaurants to special-occasion dining. Compare Google Maps ratings, check addresses and phone numbers, and "
-        "look through photos before you decide. {cuisines}Use the filters to narrow by cuisine or rating.",
-        "Planning a meal in {place}? This guide lists restaurants in the area with their cuisine, rating, address and "
-        "contact details, so you can compare options quickly. Whether you want a quick bite, a family dinner or "
-        "something special, start with the top rated places below. {cuisines}",
-        "Find the best restaurants in {place} in one place. Every listing shows the Google Maps rating, cuisine type, "
-        "address and phone number, with photos where available. Sort by rating or reviews, filter by cuisine, and "
-        "open a listing for directions. {cuisines}",
+        "Hungry in {place}? This guide ranks the restaurants in the area by Google Maps rating, so the best reviewed "
+        "places come first. Each listing shows the cuisine, address and phone number, plus photos where available, "
+        "and a tap takes you to directions. {cuisines}Use the filters to narrow by cuisine or rating.",
+        "Planning a meal in {place}? Compare restaurants in the area side by side: ratings from Google Maps, cuisine "
+        "type, address and phone number, with photos to help you choose. Start with the top rated places below, or "
+        "filter by the food you feel like. {cuisines}",
+        "Find a good place to eat in {place}. Browse cafes, casual spots and sit-down restaurants, see how diners rate "
+        "them on Google Maps, and open a listing for the address, contact details and directions. {cuisines}",
     ],
     "city": [
-        "Looking for the best restaurants in {place}? Explore top rated places to eat across every area of the city, "
-        "from neighbourhood favourites to popular dining spots. Pick an area to see its restaurants, or start with "
-        "the highest rated listings below. {cuisines}",
-        "Discover where to eat in {place}. Browse restaurants area by area, compare Google Maps ratings and "
-        "cuisines, and open any listing for the address, phone number, photos and directions. Start with the top "
-        "rated places or choose your neighbourhood. {cuisines}",
+        "Looking for the best restaurants in {place}? Start with the top rated places below, or pick your neighbourhood "
+        "to see every restaurant in that area. Each listing has the Google Maps rating, cuisine, address, phone number "
+        "and photos, so you can decide quickly. {cuisines}",
+        "Discover where to eat in {place}. Browse area by area, compare ratings and cuisines, and open any restaurant "
+        "for its address, phone number, photos and directions. The highest rated places are listed first. {cuisines}",
     ],
     "state": [
-        "Looking for the best restaurants in {place}? Browse places to eat city by city, compare Google Maps ratings "
-        "and cuisines, and find top rated restaurants near you. Pick a city below or start with the highest rated "
-        "listings across the state. {cuisines}",
-        "Find where to eat in {place}. Choose a city to explore its restaurants by area, compare ratings and "
+        "Find where to eat in {place}. Choose a city to explore its restaurants neighbourhood by neighbourhood, or start "
+        "with the highest rated places across the state. Every listing shows the Google Maps rating, cuisine, address "
+        "and contact details. {cuisines}",
+        "Planning a trip or a night out in {place}? Pick a city below to browse restaurants by area, compare ratings and "
         "cuisines, and check addresses, phone numbers and photos before you go. {cuisines}",
     ],
     "country": [
-        "Find the best restaurants in {place}, city by city. Choose a state or city to browse restaurants by area, "
-        "compare Google Maps ratings and cuisines, and check addresses, phone numbers and photos before you go. "
-        "Start with the top rated places below. {cuisines}",
+        "Find the best restaurants in {place}, city by city. Choose a state or city to browse restaurants by "
+        "neighbourhood, compare Google Maps ratings and cuisines, and get addresses, phone numbers, photos and "
+        "directions. Start with the top rated places below. {cuisines}",
     ],
 }
 
@@ -387,8 +387,8 @@ def generic_intro(node):
 
 
 def generic_desc(node):
-    return clip(f"Find the best restaurants in {place_label(node)}. Browse top rated places, cuisines, Google Maps "
-                "ratings, addresses, phone numbers and photos.", 155)
+    return clip(f"Best restaurants in {place_label(node)}: top rated places ranked by Google Maps rating, with cuisines, "
+                "photos, addresses, phone numbers and directions.", 155)
 
 
 
@@ -399,15 +399,16 @@ def render_place(site, node, content, report):
     name, sname = node.name, site.cfg["site_name"]
     children = sorted(node.children.values(), key=lambda n: -n.count)
     tiles = [{"name": ch.name, "href": site.u(ch.path), "sub": ""} for ch in children]
-    heading = {"country": f"Browse by state in {name}", "state": f"Browse by city in {name}",
-               "city": f"Browse by area in {name}"}[kind]
+    heading = {"country": f"Explore {name} state by state", "state": f"Explore {name} city by city",
+               "city": f"Explore {name} neighbourhood by neighbourhood"}[kind]
     secondary = None
     if kind == "country":
         cities = sorted((ct for st in node.children.values() for ct in st.children.values()), key=lambda n: -n.count)[:12]
         secondary = {"heading": f"Popular cities in {name}",
                      "tiles": [{"name": ct.name, "href": site.u(ct.path), "sub": ct.parent.name} for ct in cities]}
     h1 = (c and c["h1"]) or f"Best Restaurants in {name}"
-    title = (c and c["meta_title"]) or fit([f"Best Restaurants in {name} | {sname}", f"Restaurants in {name} | {sname}",
+    title = (c and c["meta_title"]) or fit([f"Best Restaurants in {name}: Ratings & Photos | {sname}",
+                                             f"Best Restaurants in {name} | {sname}", f"Restaurants in {name} | {sname}",
                                              f"Restaurants in {name}"], 60)
     desc = (c and c["meta_description"]) or generic_desc(node)
     # layout: short generic paragraph under the H1, long location text at the bottom
@@ -448,11 +449,9 @@ def render_place(site, node, content, report):
             site.write(page_path(node.path, page), "place.html", indexable=bool(c), sitemap=False, lastmod=node.lastmod,
                        title=ptitle, description=clip(f"More restaurants in {name}, ranked by Google Maps rating. Page {page} "
                                                       f"of {total}.", 155),
-                       schema=pschema, crumbs=pcrumbs, node=node, h1=f"Restaurants in {name}, Page {page}",
-                       top_intro=f"Keep browsing restaurants in {name}, ranked by Google Maps rating. Use the page numbers "
-                                 "below to move through the full list.",
+                       schema=pschema, crumbs=pcrumbs, node=node, h1=h1, top_intro=top_intro,
                        bottom_intro=[], sections=[], faqs=[], tiles=[], tiles_heading="", secondary=None, listing=chunk,
-                       pager=pager, first_page=False, top_heading=f"Restaurants in {name}", og_type="website")
+                       pager=pager, first_page=False, top_heading=f"Top rated restaurants in {name}", og_type="website")
 
 
 
@@ -465,7 +464,8 @@ def render_area(site, area, report):
     for r in rs:
         decorate(site, r)
     sname = site.cfg["site_name"]
-    title = fit([f"Best Restaurants in {area.name}, {city.name} | {sname}", f"Restaurants in {area.name}, {city.name} | {sname}",
+    title = fit([f"Best Restaurants in {area.name}, {city.name}: Ratings & Photos | {sname}",
+                 f"Best Restaurants in {area.name}, {city.name} | {sname}", f"Restaurants in {area.name}, {city.name} | {sname}",
                  f"Restaurants in {area.name}, {city.name}"], 60)
     desc = generic_desc(area)
     nearby = [a for a in city.children.values() if a is not area and a.count]
@@ -490,11 +490,45 @@ def render_area(site, area, report):
                    title=title if page == 1 else fit([f"Restaurants in {area.name}, {city.name}, Page {page} | {sname}",
                                                       f"Restaurants in {area.name}, Page {page}"], 60),
                    description=desc, schema=schema, crumbs=pcrumbs, node=area, city=city, state=state,
-                   h1=f"Best Restaurants in {area.name}, {city.name}" + ("" if page == 1 else f", Page {page}"),
+                   h1=f"Best Restaurants in {area.name}, {city.name}",
                    intro=generic_intro(area), restaurants=chunk, cuisines=cuisines,
                    pager=pagination(site, area.path, page, total),
                    nearby=[{"name": a.name, "href": site.u(a.path), "sub": ""} for a in nearby[:12]] if page == 1 else [],
                    og_type="website")
+
+
+def restaurant_copy(r):
+    """About paragraph and FAQs for a restaurant page, written only from the listing's own data."""
+    kind = (r["cuisine_short"] + " restaurant") if r["cuisine_short"] else "restaurant"
+    article = "an" if kind[0].lower() in "aeiou" else "a"
+    about = [f"{r['name']} is {article} {kind} in {r['area']}, {r['city']}."]
+    if r["rating"]:
+        about[0] += (f" Diners rate it {r['rating']} out of 5 on Google Maps"
+                     + (f" from {r['reviews']:,} reviews." if r["reviews"] else "."))
+    more = []
+    if r["price"]:
+        more.append(f"The price level is shown as {r['price']}.")
+    if r["cuisine_type"] and r["cuisine_type"].lower() != (r["cuisine_short"] or "").lower():
+        more.append(f"Google lists it as: {r['cuisine_type']}.")
+    more.append("Use the buttons above to call, open directions or visit the website, and scroll down for the full "
+                "address and nearby restaurants.")
+    about.append(" ".join(more))
+    faqs = [{"q": f"Where is {r['name']} located?", "a": f"{r['name']} is at {r['address']}." if r["address"]
+             else f"{r['name']} is in {r['area']}, {r['city']}. Open the Google Maps listing for the exact location."}]
+    if r["cuisine_short"] or r["cuisine_type"]:
+        faqs.append({"q": f"What kind of food does {r['name']} serve?",
+                     "a": f"{r['name']} is listed on Google Maps as {r['cuisine_type'] or r['cuisine_short']}."})
+    if r["phone"]:
+        faqs.append({"q": f"What is the phone number of {r['name']}?", "a": f"You can call {r['name']} on {r['phone']}."})
+    if r["rating"]:
+        faqs.append({"q": f"How is {r['name']} rated?",
+                     "a": f"{r['name']} has a Google Maps rating of {r['rating']} out of 5"
+                          + (f" based on {r['reviews']:,} reviews." if r["reviews"] else ".")
+                          + " Ratings come from Google Maps and can change over time."})
+    faqs.append({"q": f"What are the opening hours of {r['name']}?",
+                 "a": "Opening hours can change, especially on holidays. Open the Google Maps listing from this page for the "
+                      "current hours before you visit."})
+    return about, faqs
 
 
 def render_restaurant(site, r, report):
@@ -507,7 +541,7 @@ def render_restaurant(site, r, report):
     bits = [f"{r['name']}: {r['cuisine_short'] + ' restaurant' if r['cuisine_short'] else 'restaurant'} in {place}."]
     if r["rating"]:
         bits.append(f"Rated {r['rating']} on Google Maps" + (f" from {r['reviews']:,} reviews." if r["reviews"] else "."))
-    bits.append("See address, phone, photos and map link.")
+    bits.append("See photos, address, phone number and directions.")
     desc = clip(" ".join(bits), 155)
     crumbs = crumbs_for(site, area, last_link=True) + [(r["name"], None)]
     related_area = [x for x in sorted(area.restaurants, key=lambda x: -x["score"]) if x is not r][:6]
@@ -520,7 +554,9 @@ def render_restaurant(site, r, report):
     r["directions"] = (f"https://www.google.com/maps/dir/?api=1&destination={r['lat']},{r['lon']}"
                        f"&destination_place_id={r['place_id']}") if r["lat"] is not None and r["lon"] is not None else r["google_maps_link"]
     page_url = site.canonical(r["path"])
+    r["about"], r["faqs"] = restaurant_copy(r)
     schema = [finalize_breadcrumb_schema(breadcrumb_schema(site, crumbs), page_url)]
+    schema.append(faq_schema(r["faqs"]))
     ld = {"@context": "https://schema.org", "@type": "Restaurant", "name": r["name"], "url": page_url,
           "address": {"@type": "PostalAddress", "streetAddress": r["address"], "addressLocality": r["city"],
                       "addressRegion": r["state"], "addressCountry": r["country"]}}
@@ -544,7 +580,7 @@ def render_restaurant(site, r, report):
     schema.append(ld)
     site.write(r["path"], "restaurant.html", indexable=True, lastmod=r["scraped_at"][:10], title=title,
                description=desc, schema=schema, crumbs=crumbs, r=r, area=area, city=city, state=state,
-               related_area=related_area, same_cuisine=same_cuisine, og_type="place",
+               related_area=related_area, same_cuisine=same_cuisine, og_type="place", body_class="has-mbar",
                og_image=absolute(site, thumb(r["photos"][0], 1200, 630)) if r["photos"] else "")
 
 
@@ -558,6 +594,25 @@ def node_photo(node):
     return ""
 
 
+HOME_FAQS = [
+    ("How does {site} rank restaurants?",
+     "Lists are ordered by Google Maps rating, adjusted for the number of reviews. A place rated 4.8 by thousands of "
+     "diners ranks above a 5.0 from only a handful, so the order is more reliable than a plain star sort."),
+    ("Where do the ratings and photos come from?",
+     "Ratings, review counts, addresses, phone numbers and photos come from public Google Maps listings. The ratings "
+     "are Google's figures, not reviews written on {site}. Photos are checked automatically before they are shown."),
+    ("Can I get a restaurant's phone number and directions?",
+     "Yes. Every restaurant page shows the address and the phone number when one is listed on Google Maps, with "
+     "one-tap buttons to call or open directions."),
+    ("How do I find restaurants near me?",
+     "Choose a country, then a city, then your neighbourhood, or type a restaurant, area or city into the search box. "
+     "Each area page lists its restaurants from the best rated downwards, with filters for cuisine and rating."),
+    ("A restaurant has closed or its details are wrong. What should I do?",
+     "Tell us on the contact page with the address of the page and what needs to change. We will review it and update "
+     "the listing."),
+]
+
+
 def render_home(site, root, all_rest):
     countries = sorted(root.children.values(), key=lambda n: -n.count)
     multi = len(countries) > 1
@@ -566,24 +621,44 @@ def render_home(site, root, all_rest):
     top = sorted(all_rest, key=lambda r: r["score"], reverse=True)[:8]
     phrase = country_phrase(countries)
     sname = site.cfg["site_name"]
-    title = fit([f"Best Restaurants {phrase} | {sname}", f"{sname}: Find Restaurants", sname], 60)
-    desc = clip(f"Find the best restaurants {phrase}. Browse by country, city and area, compare Google Maps ratings and "
-                "cuisines, and get addresses, phone numbers, photos and directions.", 155)
-    schema = [{"@context": "https://schema.org", "@type": "WebSite", "name": sname, "url": site.canonical("")}]
+    title = fit([f"Best Restaurants {phrase}: Ratings, Photos & Directions | {sname}", f"Best Restaurants {phrase} | {sname}",
+                 f"{sname}: Find Restaurants", sname], 60)
+    desc = clip(f"Find the best restaurants {phrase}. Browse city by city and area by area, compare Google Maps ratings and "
+                "cuisines, see photos, and get addresses, phone numbers and directions.", 155)
+    faqs = [{"q": q.format(site=sname), "a": a.format(site=sname)} for q, a in HOME_FAQS]
+    logo = site.cfg["base_url"] + site.cfg["base_path"] + "/static/icon-512.png"
+    schema = [
+        {"@context": "https://schema.org", "@type": "Organization", "name": sname, "url": site.canonical(""), "logo": logo},
+        {"@context": "https://schema.org", "@type": "WebSite", "name": sname, "url": site.canonical(""),
+         "potentialAction": {"@type": "SearchAction", "target": {"@type": "EntryPoint",
+                             "urlTemplate": site.canonical("") + "?q={search_term_string}"},
+                             "query-input": "required name=search_term_string"}},
+        faq_schema(faqs),
+    ]
     sub = (lambda ct: f"{ct.parent.name}, {ct.parent.parent.name}") if multi else (lambda ct: ct.parent.name)
+
+    def best_with_photos(node, n=4):
+        pool = node.ranked[:40]
+        pick_ = [r for r in pool if r["photos"]][:n]
+        pick_ += [r for r in pool if r not in pick_][: n - len(pick_)]
+        return [decorate(site, r) for r in pick_]
+
+    city_rows = [{"name": ct.name, "href": site.u(ct.path), "restaurants": best_with_photos(ct)} for ct in all_cities[:3]]
     site.write("", "home.html", indexable=True, lastmod=max((r["scraped_at"][:10] for r in all_rest), default=""),
                title=title, description=desc, schema=schema, hero_title=f"Find the best restaurants {phrase}",
                country_tiles=[{"name": c.name, "href": site.u(c.path), "sub": "", "img": node_photo(c)} for c in countries],
                hero_cities=[{"name": ct.name, "href": site.u(ct.path)} for ct in all_cities[:6]],
                city_tiles=[{"name": ct.name, "href": site.u(ct.path), "sub": sub(ct), "img": node_photo(ct)} for ct in all_cities[:12]],
+               city_rows=city_rows, faqs=faqs, multi=multi,
                top=[decorate(site, r) for r in top], og_type="website",
                hero_photos=[r["photos"][0] for r in sorted(all_rest, key=lambda r: r["score"], reverse=True)[:40] if r["photos"]][:4])
 
 
 STATIC_PAGES = {
-    "about": ("About", "about.html", "About {site}: how this restaurant guide is compiled."),
-    "contact": ("Contact", "contact.html", "Contact {site} to report a correction or suggest a restaurant."),
-    "privacy-policy": ("Privacy Policy", "privacy.html", "How {site} handles visitor data, cookies and advertising."),
+    "about": ("About", "about.html", "About {site}: how this restaurant guide is built, where the data comes from and how lists are ranked."),
+    "contact": ("Contact", "contact.html", "Contact {site} to report a correction, a closed restaurant or a listing removal, or to get in touch."),
+    "privacy-policy": ("Privacy Policy", "privacy.html", "How {site} handles visitor data, cookies, third-party services and messages sent through the contact form."),
+    "terms": ("Terms of Use", "terms.html", "The terms for using {site}, including a disclaimer about restaurant details, ratings and photos."),
 }
 
 
@@ -696,6 +771,8 @@ def main():
         shutil.rmtree(out)
     out.mkdir(parents=True)
     shutil.copytree(ROOT / "static", out / "static")
+    if cfg.get("custom_domain"):
+        (out / "CNAME").write_text(cfg["custom_domain"].replace("https://", "").replace("http://", "").strip("/") + "\n", encoding="utf-8")
     if args.sync_photos:
         ok_n, rej_n = photo_sync.write_review_page(restaurants, out, cfg["base_path"])
         print(f"  review page /photo-audit/: {ok_n} shown, {rej_n} rejected examples")

@@ -144,3 +144,15 @@ Restaurants with no approved photo show a black placeholder and a link to their 
 
 Link patterns turned out not to separate restaurant photos from people photos, so nothing is shown on trust. The site build (`PHOTO_MODE=cache`) uses only photos that the **photos** workflow downloaded, verified (HTTP 200) and approved with the content check (level 3, CLIP). If the classifier cannot load, the photos workflow stops with a clear message and the live site keeps its current photos. The photos workflow runs in three passes and republishes the site after each, so photos appear progressively. Open `/photo-audit/` on the live site (hidden, not indexed) to see random approved photos and random rejected ones.
 Area pages list 24 restaurants per page with Previous/Next and page numbers; the cuisine/rating filters appear only on areas that fit on one page.
+
+## Brand, contact form and custom domain (Vanmeya)
+
+The brand name lives in `config.json` (`site_name`). Contact email is NOT stored in this repo or on the site.
+
+**Contact form (free):**
+1. Go to script.google.com, New project. Paste `apps_script/contact_form/Code.gs`.
+2. Project Settings, Script properties, add `TO_EMAIL` = the inbox that should receive messages.
+3. Deploy, New deployment, type Web app, Execute as Me, Who has access Anyone. Copy the web app URL.
+4. GitHub repo, Settings, Secrets and variables, Actions, Variables: add `CONTACT_API` = that URL. Re-run the site workflow.
+
+**Custom domain (vanmeya.com):** add DNS A records for 185.199.108.153, 185.199.109.153, 185.199.110.153, 185.199.111.153 and a CNAME `www` to `netsantosh.github.io`. Then set repo variables `SITE_URL=https://vanmeya.com`, `CUSTOM_DOMAIN=vanmeya.com`, and leave `BASE_PATH` empty. In Settings, Pages, set the custom domain and tick Enforce HTTPS.
