@@ -748,6 +748,16 @@ def main():
     if args.limit:
         df = df.head(args.limit)
     restaurants = load_restaurants(df, report, cfg.get("ignore_names", []))
+    rc = ROOT / "review_cache" / "reviews.json"          # filled by review_sync.py (reviews.yml workflow)
+    if rc.exists():
+        try:
+            cached = json.loads(rc.read_text("utf-8"))
+            for r in restaurants:
+                if not r["review_list"]:
+                    r["review_list"] = [dict(v, rating=int(v.get("rating") or 0)) for v in cached.get(r["place_id"], {}).get("reviews", [])]
+            print(f"  reviews: {sum(1 for r in restaurants if r['review_list'])} restaurants have review text")
+        except (ValueError, OSError):
+            print("  reviews: cache unreadable, skipped")
     if len(restaurants) < args.min_restaurants and not args.limit:
         sys.exit(f"Only {len(restaurants)} restaurants loaded (minimum {args.min_restaurants}). "
                  "The sheet may be mid-sync. Nothing was built.")
