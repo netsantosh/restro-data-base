@@ -80,6 +80,17 @@ class Node:
         return list(reversed(chain))
 
 
+CURRENCY = {"usa": "$", "united states": "$", "canada": "$", "australia": "$", "france": "€", "spain": "€", "italy": "€",
+            "germany": "€", "uk": "£", "united kingdom": "£", "india": "₹"}
+
+
+def local_price(level, country):
+    """The scraper ran with an Indian locale, so price tiers come as rupee signs. Show the local currency sign instead."""
+    if level and re.fullmatch(r"[₹$€£]{1,4}", level):
+        return CURRENCY.get(country.strip().lower(), "$")[0] * len(level)
+    return "" if level and "₹" in level else level
+
+
 def load_reviews(rec, limit=10):
     """Optional columns review_1_text, review_1_author, review_1_rating, review_1_time ... (up to 10)."""
     out = []
@@ -103,6 +114,8 @@ def load_restaurants(df, report, ignore_names=()):
             "name", "country", "state", "city", "area", "address", "postal_code",
             "cuisine_type", "phone", "website", "google_maps_link", "place_id",
             "price_level", "scraped_at")}
+        if not r["area"] and r["city"]:          # tabs without an area column value: use the postal code, else the centre
+            r["area"] = f"{r['city']} {r['postal_code']}".strip() if r["postal_code"] else f"{r['city']} Centre"
         missing = [k for k in ("name", "country", "state", "city", "area", "place_id") if not r[k]]
         if missing:
             report["skipped_incomplete"].append(f"row {i}: {r['name'] or '(no name)'} missing {','.join(missing)}")
@@ -115,7 +128,7 @@ def load_restaurants(df, report, ignore_names=()):
         r["lat"], r["lon"] = to_float(rec.get("latitude")), to_float(rec.get("longitude"))
         cuisine = re.sub(r"\s+restaurants?$", "", r["cuisine_type"], flags=re.I).strip()
         r["cuisine_short"] = cuisine if cuisine.lower() not in GENERIC_CUISINES else ""
-        r["price"] = r["price_level"]
+        r["price"] = local_price(r["price_level"], r["country"])
         site = r["website"]
         r["website"] = site if site.lower().startswith(("http://", "https://")) else ""
         r["tel"] = tel_href(r["phone"], r["country"])
