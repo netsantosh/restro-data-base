@@ -255,6 +255,9 @@ def load_content(tables, include_review, report):
 # --------------------------------------------------------------------------
 # rendering
 # --------------------------------------------------------------------------
+BUILD_ID = datetime.now().strftime("%Y%m%d%H%M%S")
+
+
 class Site:
     def __init__(self, cfg, out):
         self.cfg, self.out = cfg, out
@@ -275,7 +278,10 @@ class Site:
         return f"{self.cfg['base_path']}/{path}/" if path else f"{self.cfg['base_path']}/"
 
     def asset(self, path):
-        return f"{self.cfg['base_path']}/{path.lstrip('/')}"
+        url = f"{self.cfg['base_path']}/{path.lstrip('/')}"
+        if path.lstrip("/").startswith("static/") and path.endswith((".css", ".js")):
+            url += "?v=" + BUILD_ID                      # new URL after every build, so browsers never keep an old stylesheet
+        return url
 
     def canonical(self, path):
         return self.cfg["base_url"] + self.u(path)
