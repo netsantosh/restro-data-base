@@ -623,6 +623,9 @@ def node_photo(node):
 
 
 HOME_FAQS = [
+    ("Which countries does {site} cover?",
+     "{site} currently lists restaurants in {countries}, and new countries and cities are added regularly. Choose a "
+     "country on the home page, then a city and a neighbourhood."),
     ("How do I find a good restaurant on {site}?",
      "Pick your city, choose a neighbourhood, and open any restaurant to see its rating, photos, address, phone "
      "number and directions. Area pages also let you filter by cuisine."),
@@ -641,29 +644,42 @@ HOME_FAQS = [
 ]
 
 
+def interleave(groups):
+    """Round robin across countries so no single country fills a list: [[a1,a2],[b1]] -> a1,b1,a2."""
+    out, i = [], 0
+    while any(i < len(g) for g in groups):
+        out += [g[i] for g in groups if i < len(g)]
+        i += 1
+    return out
+
+
 def render_home(site, root, all_rest):
     countries = sorted(root.children.values(), key=lambda n: -n.count)
     multi = len(countries) > 1
-    all_cities = sorted((ct for c in countries for st in c.children.values() for ct in st.children.values()),
-                        key=lambda n: -n.count)
+    by_country = [sorted((ct for st in c.children.values() for ct in st.children.values()), key=lambda n: -n.count)
+                  for c in countries]
+    all_cities = interleave(by_country)
+    names = sorted(c.name for c in countries)
+    country_list = (names[0] if len(names) == 1 else ", ".join(names[:-1]) + " and " + names[-1])
     top = sorted(all_rest, key=lambda r: r["score"], reverse=True)[:8]
-    phrase = country_phrase(countries)
+    phrase = "around the world"
     sname = site.cfg["site_name"]
     title = fit([f"Best Restaurants {phrase}: Ratings, Photos & Directions | {sname}", f"Best Restaurants {phrase} | {sname}",
                  f"{sname}: Find Restaurants", sname], 60)
     desc = clip(f"Find the best restaurants {phrase}. Browse city by city and area by area, compare Google Maps ratings and "
                 "cuisines, see photos, and get addresses, phone numbers and directions.", 155)
-    faqs = [{"q": q.format(site=sname), "a": a.format(site=sname)} for q, a in HOME_FAQS]
+    faqs = [{"q": q.format(site=sname), "a": a.format(site=sname, countries=country_list)} for q, a in HOME_FAQS]
     logo = site.cfg["base_url"] + site.cfg["base_path"] + "/static/icon-512.png"
     schema = [
-        {"@context": "https://schema.org", "@type": "Organization", "name": sname, "url": site.canonical(""), "logo": logo},
+        {"@context": "https://schema.org", "@type": "Organization", "name": sname, "url": site.canonical(""), "logo": logo,
+         "description": f"A worldwide restaurant guide organised by country, city and neighbourhood."},
         {"@context": "https://schema.org", "@type": "WebSite", "name": sname, "url": site.canonical(""),
          "potentialAction": {"@type": "SearchAction", "target": {"@type": "EntryPoint",
                              "urlTemplate": site.canonical("") + "?q={search_term_string}"},
                              "query-input": "required name=search_term_string"}},
         faq_schema(faqs),
     ]
-    sub = (lambda ct: f"{ct.parent.name}, {ct.parent.parent.name}") if multi else (lambda ct: ct.parent.name)
+    sub = lambda ct: f"{ct.parent.name}, {ct.parent.parent.name}"
 
     def best_with_photos(node, n=4):
         pool = node.ranked[:40]
@@ -671,15 +687,17 @@ def render_home(site, root, all_rest):
         pick_ += [r for r in pool if r not in pick_][: n - len(pick_)]
         return [decorate(site, r) for r in pick_]
 
-    city_rows = [{"name": ct.name, "href": site.u(ct.path), "restaurants": best_with_photos(ct)} for ct in all_cities[:3]]
+    city_rows = [{"name": ct.name, "href": site.u(ct.path), "restaurants": best_with_photos(ct)} for ct in [g[0] for g in by_country if g][:4]]
     site.write("", "home.html", indexable=True, lastmod=max((r["scraped_at"][:10] for r in all_rest), default=""),
                title=title, description=desc, schema=schema, hero_title=f"Find the best restaurants {phrase}",
-               country_tiles=[{"name": c.name, "href": site.u(c.path), "sub": "", "img": node_photo(c)} for c in countries],
-               hero_cities=[{"name": ct.name, "href": site.u(ct.path)} for ct in all_cities[:6]],
+               country_tiles=[{"name": c.name, "href": site.u(c.path), "sub": "Explore " + c.name, "img": node_photo(c)} for c in sorted(countries, key=lambda n: n.name)],
+               hero_cities=[{"name": ct.name, "href": site.u(ct.path)} for ct in all_cities[:8]],
                city_tiles=[{"name": ct.name, "href": site.u(ct.path), "sub": sub(ct), "img": node_photo(ct)} for ct in all_cities[:12]],
                city_rows=city_rows, faqs=faqs, multi=multi,
                top=[decorate(site, r) for r in top], og_type="website",
-               hero_photos=[r["photos"][0] for r in sorted(all_rest, key=lambda r: r["score"], reverse=True)[:40] if r["photos"]][:4])
+               hero_photos=interleave([[r["photos"][0] for r in sorted((x for x in all_rest if x["country"] == c.name and x["photos"]),
+                                                                 key=lambda r: r["score"], reverse=True)[:4]] for c in countries])[:4],
+               country_list=country_list)
 
 
 STATIC_PAGES = {
@@ -769,6 +787,7 @@ def main():
                 if not r["review_list"]:
                     r["review_list"] = [dict(v, rating=int(v.get("rating") or 0)) for v in cached.get(r["place_id"], {}).get("reviews", [])]
             print(f"  reviews: {sum(1 for r in restaurants if r['review_list'])} restaurants have review text")
+            print(f"::notice title=reviews in build::{sum(1 for r in restaurants if r['review_list'])} restaurants have review text, cache has {len(cached)} entries")
         except (ValueError, OSError):
             print("  reviews: cache unreadable, skipped")
     if len(restaurants) < args.min_restaurants and not args.limit:
@@ -827,10 +846,10 @@ def main():
         "name": c.name, "href": site.u(c.path),
         "cities": [{"name": ct.name, "href": site.u(ct.path)} for ct in sorted(
             (ct for st in c.children.values() for ct in st.children.values()), key=lambda n: -n.count)[:10]]}
-        for c in countries]
-    site.env.globals["footer_countries"] = [{"name": c.name, "href": site.u(c.path)} for c in countries]
-    site.env.globals["footer_cities"] = [{"name": n.name, "href": site.u(n.path)} for n in sorted(
-        (n for n in walk(root) if n.kind == "city"), key=lambda n: -n.count)[:8]]
+        for c in sorted(countries, key=lambda n: n.name)]
+    site.env.globals["footer_countries"] = [{"name": c.name, "href": site.u(c.path)} for c in sorted(countries, key=lambda n: n.name)]
+    site.env.globals["footer_cities"] = [{"name": n.name, "href": site.u(n.path)} for n in interleave([
+        sorted((ct for st in c.children.values() for ct in st.children.values()), key=lambda n: -n.count) for c in countries])[:10]]
     for n in walk(root):
         if n.kind in ("country", "state", "city"):
             render_place(site, n, content, report)

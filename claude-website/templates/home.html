@@ -5,9 +5,9 @@
 <section class="hero">
   <div class="wrap hero-in">
     <div class="hero-copy">
-      <p class="eyebrow">The restaurant guide</p>
+      <p class="eyebrow">The worldwide restaurant guide</p>
       <h1>{{ hero_title }}</h1>
-      <p class="hero-sub">{{ site.site_name }} is a city-by-city guide to where to eat. Compare Google Maps ratings, browse photos, and get the address, phone number and directions in a tap.</p>
+      <p class="hero-sub">{{ site.site_name }} is a worldwide guide to where to eat. Pick a country and city, compare Google Maps ratings, browse photos, and get the address, phone number and directions in a tap.</p>
       <div class="search search-lg" data-search>
         <label class="vh" for="q-hero">Search restaurants</label>
         <input id="q-hero" type="search" placeholder="Search restaurants, areas or cities" autocomplete="off">
@@ -29,20 +29,18 @@
     <li><strong>Google Maps ratings</strong><span>See ratings before you choose</span></li>
     <li><strong>Real photos</strong><span>Checked before they are shown</span></li>
     <li><strong>Call or navigate</strong><span>Phone and directions on every page</span></li>
-    <li><strong>Browse by area</strong><span>From city down to neighbourhood</span></li>
+    <li><strong>Worldwide</strong><span>Country, city and neighbourhood guides</span></li>
   </ul>
 </section>
 
 <div class="wrap">
-  {% if multi %}
-  <section class="block">
-    <div class="block-head"><h2>Choose a country</h2></div>
+  <section class="block" id="countries">
+    <div class="block-head"><h2>Browse by country</h2><p class="small">Choose where you are eating, then pick a city.</p></div>
     {{ m.tiles(country_tiles) }}
   </section>
-  {% endif %}
 
   <section class="block">
-    <div class="block-head"><h2>Popular cities</h2><p class="small">Start with a city, then narrow down to your neighbourhood.</p></div>
+    <div class="block-head"><h2>Popular cities around the world</h2><p class="small">Start with a city, then narrow down to your neighbourhood.</p></div>
     {{ m.tiles(city_tiles) }}
   </section>
 

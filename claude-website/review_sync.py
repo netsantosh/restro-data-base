@@ -158,6 +158,7 @@ def main():
             ex.submit(worker)
     CACHE.write_text(json.dumps(data), "utf-8")
     print("done", stats)
+    print(f"::notice title=reviews::{stats} total with text: {sum(1 for v in data.values() if v.get('reviews'))} of {len(data)}")
 
 
 if __name__ == "__main__":
