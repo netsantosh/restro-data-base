@@ -787,6 +787,9 @@ def main():
                 if not r["review_list"]:
                     r["review_list"] = [dict(v, rating=int(v.get("rating") or 0)) for v in cached.get(r["place_id"], {}).get("reviews", [])]
             print(f"  reviews: {sum(1 for r in restaurants if r['review_list'])} restaurants have review text")
+            ex = [r for r in restaurants if r["review_list"]][:3]
+            for r in ex:
+                print(f"::notice title=review sample::{r['name']} | {r['city']} | {len(r['review_list'])} reviews | first: {r['review_list'][0]['text'][:140]}")
             print(f"::notice title=reviews in build::{sum(1 for r in restaurants if r['review_list'])} restaurants have review text, cache has {len(cached)} entries")
         except (ValueError, OSError):
             print("  reviews: cache unreadable, skipped")
