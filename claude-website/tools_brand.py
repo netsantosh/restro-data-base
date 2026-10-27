@@ -27,7 +27,7 @@ text = "V A N M E Y A"
 d.text(((1200 - d.textlength(text, font=title)) / 2, 215), text, font=title, fill="white")
 d.rectangle((540, 380, 660, 384), fill=GOLD)
 sub = ImageFont.truetype(SANS, 38)
-tag = "Find where to eat, city by city"
+tag = "Find where to eat, anywhere in the world"
 d.text(((1200 - d.textlength(tag, font=sub)) / 2, 420), tag, font=sub, fill=(220, 220, 220))
 og.save(OUT / "og-default.png", optimize=True)
 print("brand images written")
