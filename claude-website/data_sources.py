@@ -50,17 +50,41 @@ def _xlsx_tab(path, title):
     return None
 
 
+LISTING_TAB = "Listings"
+SKIP_TABS = {"status"}
+
+
+def _is_listing_df(df):
+    cols = {str(c).strip().lower() for c in df.columns}
+    return {"country", "place_id", "name"} <= cols
+
+
 def read_listings(source):
+    """The Listings tab plus every other tab that has listing columns (one tab per country is fine)."""
+    frames = []
     if source.startswith("gsheet:"):
         sheet = _client().open_by_key(source.split(":", 1)[1])
-        ws = _find_ws(sheet, "Listings")
-        if ws is None:
+        if _find_ws(sheet, LISTING_TAB) is None:
             raise SystemExit("Tab 'Listings' not found in the restaurant database sheet.")
-        return _ws_to_df(ws)
-    df = _xlsx_tab(source, "Listings")
-    if df is None:
-        raise SystemExit(f"No 'listings' tab in {source}")
-    return df
+        for ws in sheet.worksheets():
+            if ws.title.strip().lower() in SKIP_TABS:
+                continue
+            df = _ws_to_df(ws)
+            if len(df) and _is_listing_df(df):
+                print(f"  tab {ws.title!r}: {len(df)} rows")
+                frames.append(df)
+    else:
+        xl = pd.ExcelFile(source)
+        if not any(n.strip().lower() == LISTING_TAB.lower() for n in xl.sheet_names):
+            raise SystemExit(f"No 'listings' tab in {source}")
+        for n in xl.sheet_names:
+            if n.strip().lower() in SKIP_TABS:
+                continue
+            df = xl.parse(n, dtype=str)
+            if len(df) and _is_listing_df(df):
+                print(f"  tab {n!r}: {len(df)} rows")
+                frames.append(df)
+    return pd.concat(frames, ignore_index=True, sort=False).fillna("")
 
 
 def read_content(source):
