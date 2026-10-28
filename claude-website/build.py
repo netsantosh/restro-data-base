@@ -91,6 +91,11 @@ def local_price(level, country):
     return "" if level and "₹" in level else level
 
 
+def photo_folder(place_id):
+    """Folder name for a restaurant's photos on the hosting. The WordPress plugin uses exactly the same rule."""
+    return re.sub(r"[^A-Za-z0-9_-]", "", place_id)
+
+
 def load_reviews(rec, limit=10):
     """Optional columns review_1_text, review_1_author, review_1_rating, review_1_time ... (up to 10)."""
     out = []
@@ -769,6 +774,8 @@ def main():
                     help="Test N random restaurants' photo links (needs internet) and report how many still load.")
     ap.add_argument("--sync-photos", action="store_true", default=os.environ.get("PHOTO_SYNC") == "1",
                     help="Download, verify (HTTP 200) and self-host restaurant photos (needs internet; Selenium refreshes dead ones).")
+    ap.add_argument("--hosting-photos", default="", help="Hosting build: photos are not copied into the site. Pages point to "
+                    "<this path>/<place_id>/<n>.webp, which the WordPress plugin downloads onto the hosting (see wordpress-plugin/).")
     ap.add_argument("--export-images", default="", help="Write the images database CSV (verified photo links and reviews for the WordPress plugin) to this path.")
     ap.add_argument("--photos-only", action="store_true", help="Only download/verify photos and refresh via Selenium, then stop (fills photo_cache/).")
     ap.add_argument("--no-selenium", action="store_true", default=os.environ.get("PHOTO_SELENIUM") == "0")
@@ -805,7 +812,7 @@ def main():
                  "The sheet may be mid-sync. Nothing was built.")
     if args.sync_photos:
         rep = photo_sync.sync(restaurants, per=int(cfg.get("photos_per_restaurant", 4)),
-                              export_per=int(cfg.get("export_photos", 10)) if args.export_images or cfg.get("export_photos_always") else 0,
+                              export_per=int(cfg.get("export_photos", 10)) if args.export_images or args.hosting_photos or cfg.get("export_photos_always") else 0,
                               min_photos=int(cfg.get("min_photos", 3)),
                               selenium=not args.no_selenium, refresh_minutes=int(cfg.get("selenium_minutes", 70)),
                               download_minutes=int(os.environ.get("PHOTO_DOWNLOAD_MINUTES", "0") or 0),
@@ -824,7 +831,12 @@ def main():
               f"({rep['fixed_by_selenium']} recovered via Selenium, {rep['without_photo']} without, {rep['seconds']}s)")
         prefix = cfg["base_path"]
         for r in restaurants:
-            r["photos"] = [f"{prefix}/{p}" for p in r["local_photos"]]
+            if args.hosting_photos:
+                base = args.hosting_photos.rstrip("/")
+                n = min(len(r.get("verified_urls", [])), int(cfg.get("export_photos", 10)))
+                r["photos"] = [f"{base}/{photo_folder(r['place_id'])}/{i}.webp" for i in range(1, n + 1)]
+            else:
+                r["photos"] = [f"{prefix}/{p}" for p in r["local_photos"]]
     elif args.check_photos:
         res = photo_check.run(restaurants, args.check_photos, cfg["base_url"] + "/")
         report["photo_check"] = res
@@ -847,7 +859,10 @@ def main():
     shutil.copytree(ROOT / "static", out / "static")
     if cfg.get("custom_domain"):
         (out / "CNAME").write_text(cfg["custom_domain"].replace("https://", "").replace("http://", "").strip("/") + "\n", encoding="utf-8")
-    if args.sync_photos:
+    if args.sync_photos and args.hosting_photos:
+        n_ph = sum(len(r["photos"]) for r in restaurants)
+        print(f"  hosting build: {n_ph} photo links point to {args.hosting_photos}; no photos copied into the site")
+    elif args.sync_photos:
         ok_n, rej_n = photo_sync.write_review_page(restaurants, out, cfg["base_path"])
         print(f"  review page /photo-audit/: {ok_n} shown, {rej_n} rejected examples")
         files, mb = photo_sync.copy_used(restaurants, out)
