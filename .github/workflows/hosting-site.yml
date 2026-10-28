@@ -1,0 +1,68 @@
+name: hosting-site
+
+# Builds the website as a zip for your own WordPress hosting (the "Vanmeya Restaurant Guide" plugin).
+# Photos are NOT inside the zip: the plugin downloads them onto the hosting from the images database
+# (created by the "photos" workflow). Run this by hand, then download "site-for-hosting" from the run's Artifacts.
+on:
+  workflow_dispatch:
+    inputs:
+      site_url:
+        description: "Address of the WordPress site, for example https://staging.yourdomain.com (no slash at the end)"
+        required: true
+      photo_base:
+        description: "Where the plugin stores photos (leave as it is)"
+        required: true
+        default: "/wp-content/uploads/vanmeya/photos"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: hosting-site
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: claude-website/requirements.txt
+      - run: pip install -r claude-website/requirements.txt
+      - name: Restore photo cache
+        uses: actions/cache/restore@v4
+        with:
+          path: claude-website/photo_cache
+          key: photo-cache-${{ github.run_id }}
+          restore-keys: photo-cache-
+      - name: Restore review cache
+        uses: actions/cache/restore@v4
+        with:
+          path: claude-website/review_cache
+          key: review-cache-${{ github.run_id }}
+          restore-keys: review-cache-
+      - name: Build the site for hosting
+        working-directory: claude-website
+        env:
+          GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
+          DB_SHEET_ID: ${{ secrets.DB_SHEET_ID }}
+          CONTENT_SHEET_ID: ${{ secrets.CONTENT_SHEET_ID }}
+          SITE_URL: ${{ inputs.site_url }}
+          BASE_PATH: ""
+          CONTACT_API: ${{ vars.CONTACT_API }}
+          PHOTO_SYNC: "1"
+          PHOTO_MODE: cache
+          PHOTO_SELENIUM: "0"
+          PYTHONFAULTHANDLER: "1"
+        run: python build.py --hosting-photos "${{ inputs.photo_base }}"
+      - name: Zip the site
+        run: cd claude-website/dist && zip -q -r "$GITHUB_WORKSPACE/site-for-hosting.zip" . && ls -la "$GITHUB_WORKSPACE/site-for-hosting.zip"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: site-for-hosting
+          path: site-for-hosting.zip
+          retention-days: 30
