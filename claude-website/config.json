@@ -13,6 +13,7 @@
   "page_size": 24,
   "area_page_size": 24,
   "photos_per_restaurant": 4,
+  "export_photos": 10,
   "min_photos": 3,
   "selenium_minutes": 60,
   "selenium_workers": 3,
