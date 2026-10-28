@@ -20,9 +20,15 @@ class Vanmeya_Store_Wpdb {
         foreach ($rows as &$r) { $r['place_id'] = $r['folder']; $r['id'] = (int)$r['id']; $r['idx'] = (int)$r['idx']; $r['tries'] = (int)$r['tries']; }
         return $rows;
     }
-    public function finish($id, $status, $bump) {
+    public function finish($id, $status, $bump, $note = '') {
         global $wpdb;
-        $wpdb->query($wpdb->prepare("UPDATE {$this->t} SET status = %s, tries = tries + %d WHERE id = %d", $status, $bump ? 1 : 0, $id));
+        $wpdb->query($wpdb->prepare("UPDATE {$this->t} SET status = %s, tries = tries + %d, note = %s WHERE id = %d", $status, $bump ? 1 : 0, $note, $id));
+    }
+    public function reasons() {
+        global $wpdb;
+        $out = [];
+        foreach ($wpdb->get_results("SELECT note, COUNT(*) n FROM {$this->t} WHERE status = 'failed' GROUP BY note ORDER BY n DESC", ARRAY_A) as $r) { $out[$r['note'] === '' ? 'unknown' : $r['note']] = (int)$r['n']; }
+        return $out;
     }
     public function counts() {
         global $wpdb;
@@ -38,6 +44,7 @@ class Vanmeya_WP {
     const CAP = 'manage_options';
 
     public static function init() {
+        if (get_option('vanmeya_db') !== '2') { add_action('init', function () { self::activate(); update_option('vanmeya_db', '2', false); }, 1); }
         add_action('init', [__CLASS__, 'serve_site'], 0);
         add_action('template_redirect', [__CLASS__, 'serve_404'], 0);
         add_action('admin_menu', [__CLASS__, 'menu']);
@@ -72,6 +79,7 @@ class Vanmeya_WP {
             url TEXT NOT NULL,
             status VARCHAR(10) NOT NULL DEFAULT 'pending',
             tries TINYINT UNSIGNED NOT NULL DEFAULT 0,
+            note VARCHAR(40) NOT NULL DEFAULT '',
             PRIMARY KEY  (id),
             UNIQUE KEY photo (folder, idx),
             KEY status (status)
@@ -186,7 +194,10 @@ class Vanmeya_WP {
         echo '<span id="vm-note" style="margin-left:10px;color:#555">Keep this page open while it runs. You can pause and continue at any time.</span></div>';
         if ($c['failed']) {
             echo '<form method="post" action="' . esc_url(admin_url('admin-post.php')) . '"><input type="hidden" name="action" value="vanmeya_retry"><input type="hidden" name="_wpnonce" value="' . esc_attr($nonce) . '"><button class="button">Try the ' . (int)$c['failed'] . ' failed photos again</button> <span class="description">Failed photos are usually links that expired. Upload a newer images database to replace them.</span></form>';
-            echo '<details style="margin:10px 0"><summary>Show some failed photos</summary><ul>';
+            $why = $st->reasons();
+            echo '<p><strong>Why photos failed:</strong> ';
+            foreach ($why as $k => $n) echo '<code>' . esc_html($k) . '</code> ' . (int)$n . ' &nbsp; ';
+            echo '</p><details style="margin:10px 0"><summary>Show some failed photos</summary><ul>';
             foreach ($st->failed_sample() as $f) echo '<li><code>' . esc_html($f['folder'] . ' #' . $f['idx']) . '</code> ' . esc_html(wp_html_excerpt($f['url'], 90, '...')) . '</li>';
             echo '</ul></details>';
         }
