@@ -769,6 +769,7 @@ def main():
                     help="Test N random restaurants' photo links (needs internet) and report how many still load.")
     ap.add_argument("--sync-photos", action="store_true", default=os.environ.get("PHOTO_SYNC") == "1",
                     help="Download, verify (HTTP 200) and self-host restaurant photos (needs internet; Selenium refreshes dead ones).")
+    ap.add_argument("--export-images", default="", help="Write the images database CSV (verified photo links and reviews for the WordPress plugin) to this path.")
     ap.add_argument("--photos-only", action="store_true", help="Only download/verify photos and refresh via Selenium, then stop (fills photo_cache/).")
     ap.add_argument("--no-selenium", action="store_true", default=os.environ.get("PHOTO_SELENIUM") == "0")
     ap.add_argument("--limit", type=int, default=0, help="Only build the first N listing rows (quick tests).")
@@ -803,11 +804,18 @@ def main():
         sys.exit(f"Only {len(restaurants)} restaurants loaded (minimum {args.min_restaurants}). "
                  "The sheet may be mid-sync. Nothing was built.")
     if args.sync_photos:
-        rep = photo_sync.sync(restaurants, per=int(cfg.get("photos_per_restaurant", 4)), min_photos=int(cfg.get("min_photos", 3)),
+        rep = photo_sync.sync(restaurants, per=int(cfg.get("photos_per_restaurant", 4)),
+                              export_per=int(cfg.get("export_photos", 10)) if args.export_images or cfg.get("export_photos_always") else 0,
+                              min_photos=int(cfg.get("min_photos", 3)),
                               selenium=not args.no_selenium, refresh_minutes=int(cfg.get("selenium_minutes", 70)),
                               download_minutes=int(os.environ.get("PHOTO_DOWNLOAD_MINUTES", "0") or 0),
                               selenium_workers=int(cfg.get("selenium_workers", 3)))
         print("  photo http codes:", rep.get("http_codes"))
+        if args.export_images:
+            n_rows = photo_sync.write_images_database(restaurants, args.export_images, int(cfg.get("export_photos", 10)))
+            print(f"  images database: {n_rows} restaurants written to {args.export_images}")
+            print(f"::notice title=images database::{n_rows} restaurants, "
+                  f"{sum(len(r.get('verified_urls', [])) for r in restaurants)} verified photo links")
         if args.photos_only:
             print("  photos-only run finished; cache saved.")
             sys.exit(0)

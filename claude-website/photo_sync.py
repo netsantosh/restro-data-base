@@ -463,7 +463,7 @@ def refresh_with_selenium(store, missing, per, size_main, size_other, max_minute
     return stats["fixed"]
 
 
-def sync(restaurants, per=4, min_photos=3, download_minutes=0, selenium_workers=3, workers=24, selenium=True, refresh_minutes=25, size_main=(800, 600),
+def sync(restaurants, per=4, export_per=0, min_photos=3, download_minutes=0, selenium_workers=3, workers=24, selenium=True, refresh_minutes=25, size_main=(800, 600),
          size_other=(640, 480), cache_dir=CACHE, log=print, driver_factory=make_driver, collector=collect_urls):
     """Fill r['local_photos'] (site-relative paths) for every restaurant. Returns a report dict."""
     store = Store(cache_dir)
@@ -477,19 +477,24 @@ def sync(restaurants, per=4, min_photos=3, download_minutes=0, selenium_workers=
         raise SystemExit("The photo classifier (CLIP) could not be loaded, so no photo can be approved. "
                          "Check the 'content check' line above; the live site keeps its current photos.")
 
+    want = max(per, export_per)          # the site shows `per` photos; the images database export wants up to `export_per`
+
     def work(r):
-        got = []
-        for u in sorted((x for x in r["photos"] if not is_avatar(x)), key=photo_rank)[:14]:
-            if len(got) >= per:
+        got, urls = [], []
+        for u in sorted((x for x in r["photos"] if not is_avatar(x)), key=photo_rank)[:24 if want > per else 14]:
+            if len(got) >= want:
                 break
             if fetch_one(store, u, size_main if not got else size_other, can_download()):
                 got.append(key_for(u))
+                urls.append(u)
         for u in store.data.get("fresh", {}).get(r["place_id"], []):   # links Selenium found on earlier runs
-            if len(got) >= per:
+            if len(got) >= want:
                 break
             if key_for(u) not in got and fetch_one(store, u, size_main if not got else size_other, can_download()):
                 got.append(key_for(u))
+                urls.append(u)
         r["local_keys"] = got
+        r["verified_urls"] = urls
 
     t0 = time.time()
     dl_deadline = t0 + download_minutes * 60 if download_minutes else None
@@ -514,14 +519,48 @@ def sync(restaurants, per=4, min_photos=3, download_minutes=0, selenium_workers=
         for r in missing:
             for u in r.pop("_fresh", []):
                 r["local_keys"].append(key_for(u))
+                r["verified_urls"].append(u)
 
     for r in restaurants:
-        r["local_photos"] = [rel_path(k) for k in r["local_keys"]]
+        r["local_photos"] = [rel_path(k) for k in r["local_keys"][:per]]
     n_with = sum(1 for r in restaurants if r["local_photos"])
     dead = sum(1 for e in store.data["urls"].values() if e["s"] == "dead")
     return {"restaurants": len(restaurants), "with_photo": n_with, "without_photo": len(restaurants) - n_with,
             "fixed_by_selenium": fixed, "http_codes": {str(k): v for k, v in CODES.items()}, "dead_links_known": dead, "cache_dir": str(store.dir),
             "seconds": int(time.time() - t0)}
+
+
+def write_images_database(restaurants, path, n_photos=10, n_reviews=8):
+    """CSV for the WordPress plugin: one row per restaurant with its verified photo links and review texts.
+
+    Photo links are the original Google links that just passed the checks (HTTP 200, no people, no logos), best first.
+    They expire after a while, so the plugin should download them soon after this file is made (see checked_at).
+    """
+    import csv
+    from datetime import datetime, timezone
+    now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    head = ["place_id", "name", "country", "state", "city", "area", "photo_count", "review_count", "checked_at"]
+    head += [f"photo_{i}" for i in range(1, n_photos + 1)]
+    for i in range(1, n_reviews + 1):
+        head += [f"review_{i}_text", f"review_{i}_author", f"review_{i}_rating", f"review_{i}_time"]
+    rows = 0
+    Path(path).parent.mkdir(parents=True, exist_ok=True)
+    with open(path, "w", newline="", encoding="utf-8-sig") as f:      # utf-8-sig so Excel opens accents correctly
+        w = csv.writer(f)
+        w.writerow(head)
+        for r in restaurants:
+            urls = r.get("verified_urls", [])[:n_photos]
+            revs = r.get("review_list", [])[:n_reviews]
+            if not urls and not revs:
+                continue
+            row = [r["place_id"], r["name"], r["country"], r["state"], r["city"], r["area"], len(urls), len(revs), now]
+            row += urls + [""] * (n_photos - len(urls))
+            for i in range(n_reviews):
+                v = revs[i] if i < len(revs) else None
+                row += [v["text"], v["author"], v["rating"], v["when"]] if v else ["", "", "", ""]
+            w.writerow(row)
+            rows += 1
+    return rows
 
 
 def copy_used(restaurants, out_dir, cache_dir=CACHE):

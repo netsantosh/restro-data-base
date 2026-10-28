@@ -51,10 +51,17 @@ jobs:
           key: photo-cache-${{ github.run_id }}-0
           restore-keys: photo-cache-
 
+      - name: Restore review cache (reviews are added to the images database)
+        uses: actions/cache/restore@v4
+        with:
+          path: claude-website/review_cache
+          key: review-cache-${{ github.run_id }}-0
+          restore-keys: review-cache-
+
       - name: Pass 1 of 3 (download, verify, content check)
         working-directory: claude-website
         env: { PHOTO_SELENIUM: "0", PHOTO_DOWNLOAD_MINUTES: "70" }
-        run: python build.py --photos-only
+        run: python build.py --photos-only --export-images "$GITHUB_WORKSPACE/images_database.csv"
       - name: Save cache (pass 1)
         if: always()
         uses: actions/cache/save@v4
@@ -66,7 +73,7 @@ jobs:
       - name: Pass 2 of 3 (continue)
         working-directory: claude-website
         env: { PHOTO_SELENIUM: "0", PHOTO_DOWNLOAD_MINUTES: "70" }
-        run: python build.py --photos-only
+        run: python build.py --photos-only --export-images "$GITHUB_WORKSPACE/images_database.csv"
       - name: Save cache (pass 2)
         if: always()
         uses: actions/cache/save@v4
@@ -78,7 +85,7 @@ jobs:
       - name: Pass 3 of 3 (Selenium refresh for restaurants with too few photos)
         working-directory: claude-website
         env: { PHOTO_SELENIUM: "1", PHOTO_DOWNLOAD_MINUTES: "60" }
-        run: python build.py --photos-only
+        run: python build.py --photos-only --export-images "$GITHUB_WORKSPACE/images_database.csv"
       - name: Save cache (pass 3)
         if: always()
         uses: actions/cache/save@v4
@@ -86,3 +93,11 @@ jobs:
       - name: Publish site (final)
         env: { GH_TOKEN: "${{ github.token }}" }
         run: gh workflow run claude-website.yml --repo ${{ github.repository }} --ref ${{ github.ref_name }}
+      - name: Save the images database (download it from this run's Artifacts)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: images-database
+          path: images_database.csv
+          retention-days: 30
+          if-no-files-found: warn
