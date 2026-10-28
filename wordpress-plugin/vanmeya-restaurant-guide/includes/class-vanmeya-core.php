@@ -77,14 +77,21 @@ class Vanmeya_Store_Memory {
         }
         return $out;
     }
-    public function finish($id, $status, $bump_tries) {
+    public function finish($id, $status, $bump_tries, $note = '') {
         $this->items[$id]['status'] = $status;
+        $this->items[$id]['note'] = $note;
         if ($bump_tries) $this->items[$id]['tries']++;
     }
     public function counts() {
         $c = ['pending' => 0, 'done' => 0, 'failed' => 0];
         foreach ($this->items as $it) { $c[$it['status']] = ($c[$it['status']] ?? 0) + 1; }
         return $c;
+    }
+    public function reasons() {
+        $r = [];
+        foreach ($this->items as $it) { if ($it['status'] === 'failed') { $k = $it['note'] ?? '?'; $r[$k] = ($r[$k] ?? 0) + 1; } }
+        arsort($r);
+        return $r;
     }
 }
 
@@ -139,19 +146,20 @@ class Vanmeya_Images {
         $res = ['ok' => 0, 'failed' => 0, 'retry' => 0, 'taken' => count($items)];
         if (!$items) return $res;
         foreach (array_chunk($items, $this->parallel) as $group) {
-            $bodies = $this->fetch_many(array_column($group, 'url'));
+            $got = $this->fetch_many(array_column($group, 'url'));
             foreach ($group as $k => $it) {
-                $body = $bodies[$k];
-                $why = $body === null ? 'download' : $this->save($it, $body);
-                if ($why === '') { $this->store->finish($it['id'], 'done', false); $res['ok']++; }
-                elseif ($why === 'permanent' || $it['tries'] + 1 >= $this->max_tries) { $this->store->finish($it['id'], 'failed', true); $res['failed']++; }
-                else { $this->store->finish($it['id'], 'pending', true); $res['retry']++; }
+                list($body, $code) = $got[$k];
+                if ($body === null) { $why = $code >= 400 ? 'http_' . $code : ($code === 0 ? 'no_connection' : 'http_' . $code); $perm = in_array($code, [400, 401, 403, 404, 410], true); }
+                else { $why = $this->save($it, $body); $perm = in_array($why, ['too_small', 'not_an_image'], true); }
+                if ($why === '') { $this->store->finish($it['id'], 'done', false, ''); $res['ok']++; }
+                elseif ($perm || $it['tries'] + 1 >= $this->max_tries) { $this->store->finish($it['id'], 'failed', true, $why); $res['failed']++; }
+                else { $this->store->finish($it['id'], 'pending', true, $why); $res['retry']++; }
             }
         }
         return $res;
     }
 
-    /** Several downloads at once with curl_multi. Returns an array of bodies (null = failed) in the same order. */
+    /** Several downloads at once with curl_multi. Returns [body or null, http code] for each url, in the same order. */
     public function fetch_many($urls) {
         $mh = curl_multi_init();
         $handles = [];
@@ -160,7 +168,7 @@ class Vanmeya_Images {
             curl_setopt_array($ch, [
                 CURLOPT_RETURNTRANSFER => true, CURLOPT_FOLLOWLOCATION => true, CURLOPT_MAXREDIRS => 3,
                 CURLOPT_TIMEOUT => $this->timeout, CURLOPT_CONNECTTIMEOUT => 8, CURLOPT_USERAGENT => 'Mozilla/5.0 (compatible; VanmeyaImages/1.0)',
-                CURLOPT_ENCODING => '', CURLOPT_FAILONERROR => true,
+                CURLOPT_ENCODING => '',
             ]);
             curl_multi_add_handle($mh, $ch);
             $handles[$k] = $ch;
@@ -173,7 +181,7 @@ class Vanmeya_Images {
         foreach ($handles as $k => $ch) {
             $body = curl_multi_getcontent($ch);
             $code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-            $out[$k] = ($code === 200 && is_string($body) && $body !== '') ? $body : null;
+            $out[$k] = [($code === 200 && is_string($body) && $body !== '') ? $body : null, (int)$code];
             curl_multi_remove_handle($mh, $ch);
             curl_close($ch);
         }
@@ -181,13 +189,13 @@ class Vanmeya_Images {
         return $out;
     }
 
-    /** Check, resize and save one photo. Returns '' on success, 'permanent' for a bad image, or another word for "try again". */
+    /** Check, resize and save one photo. Returns '' on success, or a reason word. */
     private function save($it, $body) {
-        if (strlen($body) < 2000) return 'permanent';
+        if (strlen($body) < 2000) return 'too_small';
         $im = @imagecreatefromstring($body);
-        if (!$im) return 'permanent';
+        if (!$im) return 'not_an_image';
         $w = imagesx($im); $h = imagesy($im);
-        if ($w < $this->min_side || $h < $this->min_side) { imagedestroy($im); return 'permanent'; }
+        if ($w < $this->min_side || $h < $this->min_side) { imagedestroy($im); return 'too_small'; }
         if ($w > $this->max_width) {
             $nh = (int)round($h * $this->max_width / $w);
             $re = imagescale($im, $this->max_width, $nh);

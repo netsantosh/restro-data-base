@@ -25,5 +25,7 @@ $ok = $err === '' && count($rows) === 2 && $c['done'] === 2 && $c['failed'] === 
     && is_file("$base/out/ChIJabc-_1/1.webp") && is_file("$base/out/ChIJabc-_1/2.webp")
     && !is_file("$base/out/ChIJabc-_1/4.webp") && !file_exists("$base/evil") && !file_exists("$base/out/evil");
 proc_terminate($srv);
-echo $ok ? "PASS\n" : "FAIL " . json_encode($c) . "\n";
+$r = $st->reasons();
+$ok = $ok && ($r['http_404'] ?? 0) === 1 && ($r['too_small'] ?? 0) === 1 && ($r['not_an_image'] ?? 0) === 1;
+echo $ok ? "PASS " . json_encode($r) . "\n" : "FAIL " . json_encode([$c, $r]) . "\n";
 exit($ok ? 0 : 1);
