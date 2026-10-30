@@ -19,11 +19,16 @@ require __DIR__ . '/../vanmeya-restaurant-guide/includes/class-vanmeya-core.php'
 [$rows, $err] = Vanmeya_Csv::read("$base/t.csv");
 $st = new Vanmeya_Store_Memory; $im = new Vanmeya_Images("$base/out", $st);
 $im->enqueue($rows);
-for ($i = 0; $i < 8; $i++) { if (!$im->step(8)['taken']) break; }
+for ($i = 0; $i < 12; $i++) { if (!$im->step(8)['taken']) break; }
 $c = $st->counts();
 $ok = $err === '' && count($rows) === 2 && $c['done'] === 2 && $c['failed'] === 3
     && is_file("$base/out/ChIJabc-_1/1.webp") && is_file("$base/out/ChIJabc-_1/2.webp")
     && !is_file("$base/out/ChIJabc-_1/4.webp") && !file_exists("$base/evil") && !file_exists("$base/out/evil");
+$st2 = new Vanmeya_Store_Memory; $im2 = new Vanmeya_Images("$base/out2", $st2); $im2->net_tries = 3; $im2->timeout = 3;
+$st2->add('ChIJdown', 1, 'http://127.0.0.1:1/x.jpg');
+$s1 = $im2->step(8); $im2->step(8); $im2->step(8);
+$ok = $ok && $s1['retry'] === 1 && $st2->counts()['failed'] === 1;
+echo 'netreasons ' . json_encode($st2->reasons()) . "\n";
 proc_terminate($srv);
 $r = $st->reasons();
 $ok = $ok && ($r['http_404'] ?? 0) === 1 && ($r['too_small'] ?? 0) === 1 && ($r['not_an_image'] ?? 0) === 1;
