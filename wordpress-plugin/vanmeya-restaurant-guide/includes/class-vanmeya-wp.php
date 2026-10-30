@@ -241,11 +241,18 @@ class Vanmeya_WP {
         return null;
     }
 
+    private static function upload_problem($field) {
+        $e = isset($_FILES[$field]['error']) ? (int)$_FILES[$field]['error'] : 4;
+        if ($e === UPLOAD_ERR_INI_SIZE || $e === UPLOAD_ERR_FORM_SIZE) return 'The file is bigger than this hosting allows for uploads (limit ' . size_format(wp_max_upload_size()) . '). Use the "use incoming folder" option instead.';
+        if ($e === UPLOAD_ERR_NO_FILE) return 'No file was chosen. Choose the file first, then press the button.';
+        return 'The upload failed (code ' . $e . '). Use the "use incoming folder" option instead.';
+    }
+
     public static function handle_csv() {
         self::guard();
         wp_mkdir_p(self::photo_dir());
         $path = self::incoming_or_upload('csv', 'images_database.csv');
-        if (!$path) self::back('No file received. If the file is large, use the incoming folder option.');
+        if (!$path) self::back(self::upload_problem('csv'));
         @set_time_limit(300);
         list($rows, $err) = Vanmeya_Csv::read($path, 10);
         if ($err) self::back($err);
@@ -303,10 +310,20 @@ class Vanmeya_WP {
         self::guard();
         if (!class_exists('ZipArchive')) self::back('This hosting has no zip support.');
         $path = self::incoming_or_upload('zip', 'site-for-hosting.zip');
-        if (!$path) self::back('No file received. If the file is large, use the incoming folder option.');
+        if (!$path) self::back(self::upload_problem('zip'));
         @set_time_limit(300);
         $zip = new ZipArchive();
         if ($zip->open($path) !== true) self::back('That file is not a valid zip.');
+        for ($depth = 0; $depth < 2 && $zip->numFiles >= 1 && $zip->numFiles <= 3 && $zip->locateName('index.html') === false; $depth++) {
+            $inner = false;                    // GitHub wraps the download in one more zip: open the zip inside it
+            for ($i = 0; $i < $zip->numFiles; $i++) if (substr((string)$zip->getNameIndex($i), -4) === '.zip') { $inner = $i; break; }
+            if ($inner === false) break;
+            $tmp = self::base_dir() . '/inner.zip';
+            wp_mkdir_p(self::base_dir());
+            if (!@file_put_contents($tmp, $zip->getFromIndex($inner))) { $zip->close(); self::back('Could not unpack the zip inside the zip (disk full?).'); }
+            $zip->close(); $zip = new ZipArchive();
+            if ($zip->open($tmp) !== true) self::back('The zip inside the downloaded zip is not valid.');
+        }
         $names = [];
         for ($i = 0; $i < $zip->numFiles; $i++) {
             $n = $zip->getNameIndex($i);
@@ -321,7 +338,7 @@ class Vanmeya_WP {
         $zip->close();
         if (is_dir($cur)) rename($cur, $old);
         rename($new, $cur);
-        self::rrmdir($old);
+        self::rrmdir($old); @unlink(self::base_dir() . '/inner.zip');
         self::back('Website installed: ' . number_format_i18n(count($names)) . ' files.');
     }
 
