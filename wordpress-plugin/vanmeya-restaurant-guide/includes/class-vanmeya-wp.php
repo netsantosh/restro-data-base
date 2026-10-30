@@ -37,6 +37,8 @@ class Vanmeya_Store_Wpdb {
         return $c;
     }
     public function retry_failed() { global $wpdb; return $wpdb->query("UPDATE {$this->t} SET status = 'pending', tries = 0 WHERE status = 'failed'"); }
+    public function get($id) { global $wpdb; $r = $wpdb->get_row($wpdb->prepare("SELECT id, folder, idx, url, tries FROM {$this->t} WHERE id = %d", $id), ARRAY_A); if ($r) { $r['place_id'] = $r['folder']; $r['id'] = (int)$r['id']; $r['idx'] = (int)$r['idx']; } return $r; }
+    public function browser_take($n) { global $wpdb; return $wpdb->get_results($wpdb->prepare("SELECT id, url FROM {$this->t} WHERE status IN ('pending','failed') AND note NOT LIKE 'browser%%' ORDER BY id LIMIT %d", $n), ARRAY_A); }
     public function failed_sample($n = 40) { global $wpdb; return $wpdb->get_results($wpdb->prepare("SELECT folder, idx, url FROM {$this->t} WHERE status = 'failed' ORDER BY id LIMIT %d", $n), ARRAY_A); }
 }
 
@@ -54,6 +56,9 @@ class Vanmeya_WP {
         add_action('admin_post_vanmeya_test', [__CLASS__, 'handle_test']);
         add_action('admin_post_vanmeya_retry', [__CLASS__, 'handle_retry']);
         add_action('wp_ajax_vanmeya_step', [__CLASS__, 'ajax_step']);
+        add_action('wp_ajax_vanmeya_chunk', [__CLASS__, 'ajax_chunk']);
+        add_action('wp_ajax_vanmeya_btake', [__CLASS__, 'ajax_btake']);
+        add_action('wp_ajax_vanmeya_bput', [__CLASS__, 'ajax_bput']);
         add_filter('cron_schedules', function ($s) { $s['vanmeya_minute'] = ['interval' => 60, 'display' => 'Every minute']; return $s; });
         add_action('vanmeya_cron', [__CLASS__, 'cron']);
     }
@@ -184,7 +189,7 @@ class Vanmeya_WP {
         echo '</tbody></table>';
 
         echo '<h2>2. Photos</h2><p>Upload the <strong>images_database.csv</strong> file from the GitHub run. The plugin downloads each restaurant\'s photos into its own folder: <code>' . esc_html(self::photo_base_url_path()) . '/&lt;place_id&gt;/1.webp</code>, 2.webp and so on.</p>';
-        echo '<form method="post" enctype="multipart/form-data" action="' . esc_url(admin_url('admin-post.php')) . '">';
+        echo '<form method="post" enctype="multipart/form-data" data-chunk="csv" action="' . esc_url(admin_url('admin-post.php')) . '">';
         echo '<input type="hidden" name="action" value="vanmeya_csv"><input type="hidden" name="_wpnonce" value="' . esc_attr($nonce) . '">';
         echo '<input type="file" name="csv" accept=".csv"> <button class="button button-primary">Upload and queue photos</button> ';
         echo '<label style="margin-left:12px"><input type="checkbox" name="use_incoming" value="1"> use <code>incoming/images_database.csv</code> instead (for very large files)</label></form>';
@@ -193,6 +198,7 @@ class Vanmeya_WP {
         echo '<p id="vm-text">Downloaded <strong id="vm-done">' . (int)$c['done'] . '</strong> &middot; waiting <strong id="vm-pending">' . (int)$c['pending'] . '</strong> &middot; failed <strong id="vm-failed">' . (int)$c['failed'] . '</strong></p>';
         echo '<button class="button button-primary" id="vm-start">Start downloading</button> <button class="button" id="vm-stop" disabled>Pause</button> ';
         echo '<span id="vm-note" style="margin-left:10px;color:#555">Keep this page open while it runs. You can pause and continue at any time.</span></div>';
+        echo '<p style="margin:12px 0"><button class="button" id="vm-bstart">Download with my own browser instead</button> <span id="vm-bnote" class="description">Use this if the hosting cannot reach Google: your computer fetches the photos and sends them to the hosting. Keep this page open.</span></p>';
         echo '<form method="post" action="' . esc_url(admin_url('admin-post.php')) . '" style="margin:12px 0"><input type="hidden" name="action" value="vanmeya_test"><input type="hidden" name="_wpnonce" value="' . esc_attr($nonce) . '"><button class="button">Test the connection to Google photos</button> <span class="description">Tries one photo link and tells you exactly what happens.</span></form>';
         if ($c['failed']) {
             echo '<form method="post" action="' . esc_url(admin_url('admin-post.php')) . '"><input type="hidden" name="action" value="vanmeya_retry"><input type="hidden" name="_wpnonce" value="' . esc_attr($nonce) . '"><button class="button">Try the ' . (int)$c['failed'] . ' failed photos again</button> <span class="description">Failed photos are usually links that expired. Upload a newer images database to replace them.</span></form>';
@@ -206,8 +212,8 @@ class Vanmeya_WP {
 
         echo '<h2>3. Website pages</h2><p>Upload <strong>site-for-hosting.zip</strong> from the "hosting-site" GitHub run. When it is installed, the plugin shows the guide at the root of this site (<code>' . esc_html(home_url('/')) . '</code>).</p>';
         echo '<p>The site builder needs this photo path: <code>' . esc_html(self::photo_base_url_path()) . '</code></p>';
-        echo '<p>' . ($installed ? '<strong>Installed.</strong> Last updated ' . esc_html(date_i18n('j M Y, H:i', filemtime(self::site_dir() . '/index.html'))) . '.' : 'Not installed yet.') . '</p>';
-        echo '<form method="post" enctype="multipart/form-data" action="' . esc_url(admin_url('admin-post.php')) . '">';
+        echo '<p>' . ($installed ? '<strong>Installed.</strong> Last updated ' . esc_html(date_i18n('j M Y, H:i', filemtime(self::site_dir() . '/index.html'))) . '. <a href="' . esc_url(home_url('/')) . '" target="_blank">Open the website</a>' : 'Not installed yet.') . '</p>';
+        echo '<form method="post" enctype="multipart/form-data" data-chunk="zip" action="' . esc_url(admin_url('admin-post.php')) . '">';
         echo '<input type="hidden" name="action" value="vanmeya_zip"><input type="hidden" name="_wpnonce" value="' . esc_attr($nonce) . '">';
         echo '<input type="file" name="zip" accept=".zip"> <button class="button button-primary">Upload and install</button> ';
         echo '<label style="margin-left:12px"><input type="checkbox" name="use_incoming" value="1"> use <code>incoming/site-for-hosting.zip</code> instead</label></form>';
@@ -225,6 +231,23 @@ class Vanmeya_WP {
         fetch("' . $ajax . '",{method:"POST",body:f,credentials:"same-origin"}).then(function(r){return r.json();}).then(function(j){if(!j.success){note.textContent="Stopped: "+(j.data||"error");run=false;btn.disabled=false;stop.disabled=true;return;}
         upd(j.data.counts);if(j.data.counts.pending===0){note.textContent="Finished.";run=false;btn.disabled=false;stop.disabled=true;return;}note.textContent="Working...";setTimeout(loop,200);}).catch(function(){note.textContent="Connection problem, trying again...";setTimeout(loop,3000);});}
         btn.onclick=function(){run=true;btn.disabled=true;stop.disabled=false;loop();};stop.onclick=function(){run=false;btn.disabled=false;stop.disabled=true;note.textContent="Paused.";};})();</script>';
+
+        echo '<script>(function(){var AJ="' . $ajax . '",NC="' . esc_js($nonce) . '";
+        function post(a,f){f.append("action",a);f.append("_wpnonce",NC);return fetch(AJ,{method:"POST",body:f,credentials:"same-origin"}).then(function(r){return r.json();});}
+        document.querySelectorAll("form[data-chunk]").forEach(function(fm){fm.addEventListener("submit",function(e){
+          var inp=fm.querySelector("input[type=file]"),file=inp&&inp.files[0];if(!file||fm.dataset.sent)return;e.preventDefault();
+          var kind=fm.dataset.chunk,size=1048576,total=Math.ceil(file.size/size),i=0,btn=fm.querySelector("button");btn.disabled=true;
+          function next(){if(i>=total){fm.dataset.sent=1;inp.value="";var c=fm.querySelector("input[name=use_incoming]");c.checked=true;btn.textContent="Installing, please wait...";fm.submit();return;}
+            var f=new FormData();f.append("kind",kind);f.append("index",i);f.append("piece",file.slice(i*size,(i+1)*size),"p");
+            btn.textContent="Uploading "+Math.round(100*i/total)+"%";
+            post("vanmeya_chunk",f).then(function(j){if(!j.success){alert("Upload stopped: "+j.data);btn.disabled=false;btn.textContent="Try again";return;}i++;next();}).catch(function(){setTimeout(next,2000);});}
+          next();});});
+        var bb=document.getElementById("vm-bstart"),bn=document.getElementById("vm-bnote"),brun=false;
+        function toWebp(url){return fetch(url,{mode:"cors",referrerPolicy:"no-referrer"}).then(function(r){if(!r.ok)throw new Error("http_"+r.status);return r.blob();}).then(function(b){return createImageBitmap(b);}).then(function(bm){var w=bm.width,h=bm.height;if(w<200||h<200)throw new Error("too_small");var s=w>800?800/w:1,cv=document.createElement("canvas");cv.width=Math.round(w*s);cv.height=Math.round(h*s);cv.getContext("2d").drawImage(bm,0,0,cv.width,cv.height);return new Promise(function(ok,no){cv.toBlob(function(x){x?ok(x):no(new Error("encode"));},"image/webp",0.78);});});}
+        function one(it){return toWebp(it.url).then(function(b){var f=new FormData();f.append("id",it.id);f.append("img",b,"x.webp");return post("vanmeya_bput",f);}).catch(function(err){var f=new FormData();f.append("id",it.id);var m=(err&&err.message)||"error";f.append("fail",m==="Failed to fetch"?"blocked":m);return post("vanmeya_bput",f);});}
+        function bloop(){if(!brun)return;post("vanmeya_btake",new FormData()).then(function(j){if(!j.success||!j.data.items.length){bn.textContent="Finished (or nothing left to try).";brun=false;bb.textContent="Download with my own browser instead";return;}
+          Promise.all(j.data.items.map(one)).then(function(r){var c=r[r.length-1]&&r[r.length-1].data&&r[r.length-1].data.counts;if(c)bn.textContent="Downloaded "+c.done+", waiting "+c.pending+", failed "+c.failed+" (keep this page open)";bloop();});}).catch(function(){setTimeout(bloop,3000);});}
+        if(bb)bb.onclick=function(){if(brun){brun=false;bb.textContent="Download with my own browser instead";bn.textContent="Paused.";return;}brun=true;bb.textContent="Pause browser download";bn.textContent="Working...";bloop();};})();</script>';
         echo '</div>';
     }
 
@@ -281,6 +304,44 @@ class Vanmeya_WP {
         wp_send_json_success(['counts' => (new Vanmeya_Store_Wpdb())->counts(), 'step' => $res]);
     }
 
+    /** Browser upload in small pieces, so the hosting's upload size limit does not matter. */
+    public static function ajax_chunk() {
+        if (!current_user_can(self::CAP) || !wp_verify_nonce(isset($_POST['_wpnonce']) ? $_POST['_wpnonce'] : '', 'vanmeya')) wp_send_json_error('Not allowed.');
+        $kind = isset($_POST['kind']) ? $_POST['kind'] : '';
+        $names = ['csv' => 'images_database.csv', 'zip' => 'site-for-hosting.zip'];
+        if (!isset($names[$kind])) wp_send_json_error('Unknown file type.');
+        if (empty($_FILES['piece']['tmp_name']) || !is_uploaded_file($_FILES['piece']['tmp_name'])) wp_send_json_error('The piece did not arrive.');
+        $dir = self::incoming(); wp_mkdir_p($dir);
+        $dest = $dir . '/' . $names[$kind];
+        $i = (int)$_POST['index'];
+        $data = file_get_contents($_FILES['piece']['tmp_name']);
+        if (@file_put_contents($dest, $data, $i === 0 ? 0 : FILE_APPEND) === false) wp_send_json_error('Could not write the file (disk full?).');
+        wp_send_json_success(['size' => filesize($dest)]);
+    }
+
+    /** Photos fetched by the visitor's own browser: hand out links ... */
+    public static function ajax_btake() {
+        if (!current_user_can(self::CAP) || !wp_verify_nonce(isset($_POST['_wpnonce']) ? $_POST['_wpnonce'] : '', 'vanmeya')) wp_send_json_error('Not allowed.');
+        $st = new Vanmeya_Store_Wpdb();
+        wp_send_json_success(['items' => $st->browser_take(6), 'counts' => $st->counts()]);
+    }
+
+    /** ... and receive the finished picture (or the reason it failed). */
+    public static function ajax_bput() {
+        if (!current_user_can(self::CAP) || !wp_verify_nonce(isset($_POST['_wpnonce']) ? $_POST['_wpnonce'] : '', 'vanmeya')) wp_send_json_error('Not allowed.');
+        $st = new Vanmeya_Store_Wpdb();
+        $it = $st->get((int)$_POST['id']);
+        if (!$it) wp_send_json_error('Unknown photo.');
+        $fail = isset($_POST['fail']) ? substr(sanitize_text_field($_POST['fail']), 0, 40) : '';
+        if ($fail !== '' || empty($_FILES['img']['tmp_name']) || !is_uploaded_file($_FILES['img']['tmp_name'])) {
+            $st->finish($it['id'], 'failed', true, 'browser_' . ($fail !== '' ? $fail : 'no_file'));
+        } else {
+            $why = self::images()->save_public($it, file_get_contents($_FILES['img']['tmp_name']));
+            $why === '' ? $st->finish($it['id'], 'done', false, '') : $st->finish($it['id'], 'failed', true, 'browser_' . $why);
+        }
+        wp_send_json_success(['counts' => $st->counts()]);
+    }
+
     private static function run_for($seconds) {
         @set_time_limit($seconds + 30);
         $im = self::images();
@@ -321,7 +382,12 @@ class Vanmeya_WP {
         $zip->close();
         if (is_dir($cur)) rename($cur, $old);
         rename($new, $cur);
+<<<<<<< Updated upstream
         self::rrmdir($old);
+=======
+        self::rrmdir($old); @unlink(self::base_dir() . '/inner.zip');
+        if (!empty($_POST['use_incoming'])) @unlink($path);
+>>>>>>> Stashed changes
         self::back('Website installed: ' . number_format_i18n(count($names)) . ' files.');
     }
 
