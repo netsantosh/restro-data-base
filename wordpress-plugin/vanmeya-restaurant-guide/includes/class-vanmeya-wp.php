@@ -16,7 +16,7 @@ class Vanmeya_Store_Wpdb {
     }
     public function take($n, $max_tries) {
         global $wpdb;
-        $rows = $wpdb->get_results($wpdb->prepare("SELECT id, folder, idx, url, tries FROM {$this->t} WHERE status = 'pending' AND tries < %d ORDER BY id LIMIT %d", $max_tries, $n), ARRAY_A);
+        $rows = $wpdb->get_results($wpdb->prepare("SELECT id, folder, idx, url, tries FROM {$this->t} WHERE status = 'pending' AND tries < %d ORDER BY tries, id LIMIT %d", $max_tries, $n), ARRAY_A);
         foreach ($rows as &$r) { $r['place_id'] = $r['folder']; $r['id'] = (int)$r['id']; $r['idx'] = (int)$r['idx']; $r['tries'] = (int)$r['tries']; }
         return $rows;
     }
@@ -51,6 +51,7 @@ class Vanmeya_WP {
         add_action('admin_post_vanmeya_csv', [__CLASS__, 'handle_csv']);
         add_action('admin_post_vanmeya_zip', [__CLASS__, 'handle_zip']);
         add_action('admin_post_vanmeya_settings', [__CLASS__, 'handle_settings']);
+        add_action('admin_post_vanmeya_test', [__CLASS__, 'handle_test']);
         add_action('admin_post_vanmeya_retry', [__CLASS__, 'handle_retry']);
         add_action('wp_ajax_vanmeya_step', [__CLASS__, 'ajax_step']);
         add_filter('cron_schedules', function ($s) { $s['vanmeya_minute'] = ['interval' => 60, 'display' => 'Every minute']; return $s; });
@@ -192,6 +193,7 @@ class Vanmeya_WP {
         echo '<p id="vm-text">Downloaded <strong id="vm-done">' . (int)$c['done'] . '</strong> &middot; waiting <strong id="vm-pending">' . (int)$c['pending'] . '</strong> &middot; failed <strong id="vm-failed">' . (int)$c['failed'] . '</strong></p>';
         echo '<button class="button button-primary" id="vm-start">Start downloading</button> <button class="button" id="vm-stop" disabled>Pause</button> ';
         echo '<span id="vm-note" style="margin-left:10px;color:#555">Keep this page open while it runs. You can pause and continue at any time.</span></div>';
+        echo '<form method="post" action="' . esc_url(admin_url('admin-post.php')) . '" style="margin:12px 0"><input type="hidden" name="action" value="vanmeya_test"><input type="hidden" name="_wpnonce" value="' . esc_attr($nonce) . '"><button class="button">Test the connection to Google photos</button> <span class="description">Tries one photo link and tells you exactly what happens.</span></form>';
         if ($c['failed']) {
             echo '<form method="post" action="' . esc_url(admin_url('admin-post.php')) . '"><input type="hidden" name="action" value="vanmeya_retry"><input type="hidden" name="_wpnonce" value="' . esc_attr($nonce) . '"><button class="button">Try the ' . (int)$c['failed'] . ' failed photos again</button> <span class="description">Failed photos are usually links that expired. Upload a newer images database to replace them.</span></form>';
             $why = $st->reasons();
@@ -252,6 +254,15 @@ class Vanmeya_WP {
         self::back('Read ' . count($rows) . ' restaurants and queued ' . number_format_i18n($n) . ' photos. Press "Start downloading".');
     }
 
+    public static function handle_test() {
+        self::guard();
+        global $wpdb; $t = $wpdb->prefix . 'vanmeya_queue';
+        $url = $wpdb->get_var("SELECT url FROM $t ORDER BY (status = 'pending') DESC, id DESC LIMIT 1");
+        $out = $url ? 'Photo link: ' . Vanmeya_Images::diagnose($url) : 'No photo links yet, upload the images database first.';
+        $out .= ' | Google home page: ' . Vanmeya_Images::diagnose('https://www.google.com/');
+        $out .= ' | Another image host: ' . Vanmeya_Images::diagnose('https://www.gstatic.com/images/branding/product/1x/googleg_48dp.png');
+        self::back($out);
+    }
     public static function handle_retry() { self::guard(); $n = (new Vanmeya_Store_Wpdb())->retry_failed(); self::back("Queued $n photos again."); }
 
     public static function handle_settings() {
@@ -273,7 +284,7 @@ class Vanmeya_WP {
     private static function run_for($seconds) {
         @set_time_limit($seconds + 30);
         $im = self::images();
-        $t0 = time(); $tot = ['ok' => 0, 'failed' => 0, 'retry' => 0, 'taken' => 0];
+        $t0 = time(); $tot = ['ok' => 0, 'failed' => 0, 'retry' => 0, 'taken' => 0, 'net' => 0];
         do {
             $r = $im->step(8);
             foreach ($tot as $k => $_) $tot[$k] += $r[$k];

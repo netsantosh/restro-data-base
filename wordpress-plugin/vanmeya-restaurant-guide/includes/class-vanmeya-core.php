@@ -98,12 +98,13 @@ class Vanmeya_Store_Memory {
 class Vanmeya_Images {
     public $dir;            // photo root, one folder per restaurant inside
     public $store;
-    public $max_tries = 3;
-    public $parallel = 8;
+    public $max_tries = 3;       // for answers from Google such as 5xx
+    public $net_tries = 8;       // for 'could not connect' problems, which are usually temporary on shared hosting
+    public $parallel = 4;
     public $max_width = 800;
     public $quality = 78;
     public $min_side = 200;     // smaller images are logos or icons
-    public $timeout = 12;
+    public $timeout = 25;
 
     public function __construct($dir, $store) { $this->dir = rtrim($dir, '/'); $this->store = $store; }
 
@@ -142,24 +143,30 @@ class Vanmeya_Images {
 
     /** Download up to $batch queued photos (in parallel) and store them. Returns counts for this step. */
     public function step($batch = 24) {
-        $items = $this->store->take($batch, $this->max_tries);
-        $res = ['ok' => 0, 'failed' => 0, 'retry' => 0, 'taken' => count($items)];
+        $items = $this->store->take($batch, $this->net_tries);
+        $res = ['ok' => 0, 'failed' => 0, 'retry' => 0, 'taken' => count($items), 'net' => 0];
         if (!$items) return $res;
         foreach (array_chunk($items, $this->parallel) as $group) {
             $got = $this->fetch_many(array_column($group, 'url'));
             foreach ($group as $k => $it) {
-                list($body, $code) = $got[$k];
-                if ($body === null) { $why = $code >= 400 ? 'http_' . $code : ($code === 0 ? 'no_connection' : 'http_' . $code); $perm = in_array($code, [400, 401, 403, 404, 410], true); }
-                else { $why = $this->save($it, $body); $perm = in_array($why, ['too_small', 'not_an_image'], true); }
+                list($body, $code, $err) = $got[$k];
+                $net = false;
+                if ($body === null) {
+                    if ($code === 0) { $net = true; $why = 'net: ' . substr($err !== '' ? $err : 'no answer', 0, 34); $res['net']++; }
+                    else $why = 'http_' . $code;
+                    $perm = in_array($code, [400, 401, 403, 404, 410], true);
+                } else { $why = $this->save($it, $body); $perm = in_array($why, ['too_small', 'not_an_image'], true); }
+                $limit = $net ? $this->net_tries : $this->max_tries;
                 if ($why === '') { $this->store->finish($it['id'], 'done', false, ''); $res['ok']++; }
-                elseif ($perm || $it['tries'] + 1 >= $this->max_tries) { $this->store->finish($it['id'], 'failed', true, $why); $res['failed']++; }
+                elseif ($perm || $it['tries'] + 1 >= $limit) { $this->store->finish($it['id'], 'failed', true, $why); $res['failed']++; }
                 else { $this->store->finish($it['id'], 'pending', true, $why); $res['retry']++; }
             }
+            if ($res['net'] > 0 && $res['ok'] === 0) { sleep(3); break; }   // the connection is struggling: slow down instead of burning the retries
         }
         return $res;
     }
 
-    /** Several downloads at once with curl_multi. Returns [body or null, http code] for each url, in the same order. */
+    /** Several downloads at once with curl_multi. Returns [body or null, http code (0 = no connection), error text] for each url, in the same order. */
     public function fetch_many($urls) {
         $mh = curl_multi_init();
         $handles = [];
@@ -167,8 +174,8 @@ class Vanmeya_Images {
             $ch = curl_init($u);
             curl_setopt_array($ch, [
                 CURLOPT_RETURNTRANSFER => true, CURLOPT_FOLLOWLOCATION => true, CURLOPT_MAXREDIRS => 3,
-                CURLOPT_TIMEOUT => $this->timeout, CURLOPT_CONNECTTIMEOUT => 8, CURLOPT_USERAGENT => 'Mozilla/5.0 (compatible; VanmeyaImages/1.0)',
-                CURLOPT_ENCODING => '',
+                CURLOPT_TIMEOUT => $this->timeout, CURLOPT_CONNECTTIMEOUT => 15, CURLOPT_IPRESOLVE => CURL_IPRESOLVE_V4, CURLOPT_USERAGENT => 'Mozilla/5.0 (compatible; VanmeyaImages/1.0)',
+                CURLOPT_ENCODING => '', CURLOPT_HTTPHEADER => ['Accept: image/webp,image/*,*/*;q=0.8', 'Referer: https://www.google.com/'],
             ]);
             curl_multi_add_handle($mh, $ch);
             $handles[$k] = $ch;
@@ -177,16 +184,36 @@ class Vanmeya_Images {
             $status = curl_multi_exec($mh, $active);
             if ($active) curl_multi_select($mh, 1.0);
         } while ($active && $status === CURLM_OK);
+        $errs = [];
+        while (($info = curl_multi_info_read($mh)) !== false) {
+            if ($info['result'] !== 0) $errs[(int)$info['handle']] = $info['result'];
+        }
         $out = [];
         foreach ($handles as $k => $ch) {
             $body = curl_multi_getcontent($ch);
+            $en = isset($errs[(int)$ch]) ? $errs[(int)$ch] : curl_errno($ch);
+            $em = $en ? (function_exists('curl_strerror') ? curl_strerror($en) : (string)$en) : '';
             $code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-            $out[$k] = [($code === 200 && is_string($body) && $body !== '') ? $body : null, (int)$code];
+            $out[$k] = [($code === 200 && is_string($body) && $body !== '') ? $body : null, (int)$code, $em !== '' ? $em : curl_error($ch)];
             curl_multi_remove_handle($mh, $ch);
             curl_close($ch);
         }
         curl_multi_close($mh);
         return $out;
+    }
+
+    /** Plain-words check of one address: what happened and why. Used by the Test button. */
+    public static function diagnose($url) {
+        if (!function_exists('curl_init')) return 'curl is not installed on this hosting.';
+        $ch = curl_init($url);
+        curl_setopt_array($ch, [CURLOPT_RETURNTRANSFER => true, CURLOPT_FOLLOWLOCATION => true, CURLOPT_MAXREDIRS => 3, CURLOPT_TIMEOUT => 25, CURLOPT_CONNECTTIMEOUT => 15,
+            CURLOPT_IPRESOLVE => CURL_IPRESOLVE_V4, CURLOPT_USERAGENT => 'Mozilla/5.0 (compatible; VanmeyaImages/1.0)', CURLOPT_HTTPHEADER => ['Referer: https://www.google.com/']]);
+        $body = curl_exec($ch);
+        $code = (int)curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        $msg = curl_error($ch); $no = curl_errno($ch); $ip = curl_getinfo($ch, CURLINFO_PRIMARY_IP); $t = round(curl_getinfo($ch, CURLINFO_TOTAL_TIME), 1);
+        curl_close($ch);
+        $host = parse_url($url, PHP_URL_HOST);
+        return $host . ': answer ' . $code . ', ' . (is_string($body) ? strlen($body) : 0) . ' bytes, ' . $t . 's, server ' . ($ip ?: 'not reached') . ($no ? ', error ' . $no . ' (' . self::net_error($no) . ': ' . $msg . ')' : '');
     }
 
     /** Check, resize and save one photo. Returns '' on success, or a reason word. */
