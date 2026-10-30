@@ -217,6 +217,8 @@ class Vanmeya_Images {
     }
 
     /** Check, resize and save one photo. Returns '' on success, or a reason word. */
+    public function save_public($it, $body) { return $this->save($it, $body); }
+
     private function save($it, $body) {
         if (strlen($body) < 2000) return 'too_small';
         $im = @imagecreatefromstring($body);
