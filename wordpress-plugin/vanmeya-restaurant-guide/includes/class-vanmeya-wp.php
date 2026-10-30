@@ -382,12 +382,8 @@ class Vanmeya_WP {
         $zip->close();
         if (is_dir($cur)) rename($cur, $old);
         rename($new, $cur);
-<<<<<<< Updated upstream
-        self::rrmdir($old);
-=======
         self::rrmdir($old); @unlink(self::base_dir() . '/inner.zip');
         if (!empty($_POST['use_incoming'])) @unlink($path);
->>>>>>> Stashed changes
         self::back('Website installed: ' . number_format_i18n(count($names)) . ' files.');
     }
 
