@@ -302,7 +302,17 @@ class Site:
         p = path.strip("/")
         if "/page/" not in "/" + p + "/" and p != "404":
             kind = {"restaurant.html": "restaurant", "place.html": "place", "area.html": "area", "home.html": "home"}.get(template, "page")
-            self.manifest.append([p, kind, str(ctx.get("title", ""))])
+            r, node = ctx.get("r"), ctx.get("node")
+            v = {}
+            if r:
+                v = {n.kind: n.name for n in r["area_node"].ancestors()[1:]}
+                v["name"] = r["name"]
+                v["cuisine"] = r.get("cuisine_short") or ""
+            elif node is not None:
+                v = {n.kind: n.name for n in node.ancestors()[1:]}
+                v["name"] = node.name
+            h1 = str(ctx.get("h1") or (r["name"] if r else ""))
+            self.manifest.append([p, kind, str(ctx.get("title", "")), str(ctx.get("description", "")), h1, v])
         self.pages.append((path.strip("/"), lastmod, indexable and sitemap))
 
 
