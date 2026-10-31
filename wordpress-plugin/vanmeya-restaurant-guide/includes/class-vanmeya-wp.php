@@ -46,7 +46,8 @@ class Vanmeya_WP {
     const CAP = 'manage_options';
 
     public static function init() {
-        if (get_option('vanmeya_db') !== '2') { add_action('init', function () { self::activate(); update_option('vanmeya_db', '2', false); }, 1); }
+        if (get_option('vanmeya_db') !== '3') { add_action('init', function () { self::activate(); update_option('vanmeya_db', '3', false); }, 1); }
+        Vanmeya_Editor_Admin::init();
         add_action('init', [__CLASS__, 'serve_site'], 0);
         add_action('template_redirect', [__CLASS__, 'serve_404'], 0);
         add_action('admin_menu', [__CLASS__, 'menu']);
@@ -91,6 +92,7 @@ class Vanmeya_WP {
             UNIQUE KEY photo (folder, idx),
             KEY status (status)
         ) " . $wpdb->get_charset_collate() . ";");
+        Vanmeya_Editor_Admin::install();
         foreach ([self::base_dir(), self::photo_dir(), self::incoming()] as $d) { wp_mkdir_p($d); }
         @file_put_contents(self::base_dir() . '/index.html', '');           // no folder listing
         @file_put_contents(self::incoming() . '/.htaccess', "Require all denied\nDeny from all\n");
@@ -131,11 +133,35 @@ class Vanmeya_WP {
         $file = $root . '/' . $rel;
         if ($rel === '' || substr($p, -1) === '/') $file = rtrim($file, '/') . '/index.html';
         elseif (is_dir($file)) { wp_redirect(home_url($p . '/'), 301); exit; }
+        if ($rel === 'vm-pages.json' || $rel === '_vm_shell.html') return;
         $real = realpath($file);
-        if (!$real || strpos($real, $root . DIRECTORY_SEPARATOR) !== 0 || !is_file($real)) return;   // not ours: WordPress carries on
+        $key = trim($p, '/');
+        if (!$real || strpos($real, $root . DIRECTORY_SEPARATOR) !== 0 || !is_file($real)) {
+            $c = class_exists('Vanmeya_Editor_Admin') && $key !== '' ? Vanmeya_Editor_Admin::get($key) : null;     // a page added in the admin
+            if ($c && $c['custom'] && is_file($root . '/_vm_shell.html')) {
+                status_header(200);
+                self::send_headers(self::$mime['html'], $root . '/_vm_shell.html', time(), true);
+                header('Cache-Control: no-cache');
+                echo Vanmeya_Editor::from_shell((string)file_get_contents($root . '/_vm_shell.html'), $c['data'], home_url('/' . $key . '/'));
+                exit;
+            }
+            return;   // not ours: WordPress carries on
+        }
         $ext = strtolower(pathinfo($real, PATHINFO_EXTENSION));
         $ctype = isset(self::$mime[$ext]) ? self::$mime[$ext] : 'application/octet-stream';
         $mtime = filemtime($real);
+        if ($ext === 'html' && class_exists('Vanmeya_Editor_Admin')) {
+            $relf = substr($real, strlen($root) + 1);
+            $pk = $relf === 'index.html' ? '' : (basename($relf) === 'index.html' ? str_replace(DIRECTORY_SEPARATOR, '/', dirname($relf)) : null);
+            $c = $pk === null ? null : Vanmeya_Editor_Admin::get($pk);
+            if ($c) {
+                self::send_headers($ctype, $real, $mtime, true);
+                header('Cache-Control: no-cache');
+                header_remove('Last-Modified');
+                echo Vanmeya_Editor::apply((string)file_get_contents($real), $c['data']);
+                exit;
+            }
+        }
         if (isset($_SERVER['HTTP_IF_MODIFIED_SINCE']) && strtotime($_SERVER['HTTP_IF_MODIFIED_SINCE']) >= $mtime) { status_header(304); exit; }
         self::send_headers($ctype, $real, $mtime, $ext === 'html');
         header('Content-Length: ' . filesize($real));
