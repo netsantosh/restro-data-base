@@ -267,6 +267,7 @@ class Site:
     def __init__(self, cfg, out):
         self.cfg, self.out = cfg, out
         self.pages = []              # (path, lastmod, indexable)
+        self.manifest = []           # rows for the WordPress page editor
         self.page_images = {}        # path -> absolute photo URLs (image sitemap)
         self.env = Environment(loader=FileSystemLoader(ROOT / "templates"),
                                autoescape=select_autoescape(["html"]),
@@ -298,6 +299,10 @@ class Site:
         dest = self.out / path.strip("/") / "index.html" if path.strip("/") else self.out / "index.html"
         dest.parent.mkdir(parents=True, exist_ok=True)
         dest.write_text(html, encoding="utf-8")
+        p = path.strip("/")
+        if "/page/" not in "/" + p + "/" and p != "404":
+            kind = {"restaurant.html": "restaurant", "place.html": "place", "area.html": "area", "home.html": "home"}.get(template, "page")
+            self.manifest.append([p, kind, str(ctx.get("title", ""))])
         self.pages.append((path.strip("/"), lastmod, indexable and sitemap))
 
 
@@ -734,6 +739,14 @@ def render_static_pages(site):
     site.pages = [p for p in site.pages if p[0] != "404"]
 
 
+def write_editor_files(site):
+    """Files for the WordPress page editor: a list of all pages, and a blank page shell for new pages."""
+    (site.out / "vm-pages.json").write_text(json.dumps({"v": 1, "rows": site.manifest}, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
+    html = site.env.get_template("custom.html").render(
+        title="@@TITLE@@", description="@@DESC@@", canonical="@@URL@@", noindex=False, schema=[], crumbs=[], og_type="website")
+    (site.out / "_vm_shell.html").write_text(html, encoding="utf-8")
+
+
 def write_sitemap_and_robots(site):
     base = site.cfg["base_url"]
     urls = []
@@ -892,6 +905,7 @@ def main():
     render_home(site, root, restaurants)
     render_static_pages(site)
     indexed = write_sitemap_and_robots(site)
+    write_editor_files(site)
     write_search_index(site, restaurants)
 
     levels = Counter(n.kind for n in walk(root))

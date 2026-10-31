@@ -3,7 +3,7 @@
 {% block main %}
 {{ m.banner(crumbs, "Privacy Policy", "What " ~ site.site_name ~ " collects, what it does not, and the choices you have. Last updated " ~ built_on ~ ".") }}
 <div class="wrap">
-  <div class="article narrow-article">
+  <div class="article narrow-article"><!--vm:article-->
     <h2>The short version</h2>
     <p>You can browse {{ site.site_name }} without an account and without giving us any personal details. We do not sell personal information. The only personal information we receive is what you choose to send through the contact form.</p>
     <h2>Information we receive</h2>
@@ -22,6 +22,6 @@
     <p>We may update this policy from time to time. The date at the top shows when it last changed. Continued use of the site after a change means you accept the updated policy.</p>
     <h2>Questions</h2>
     <p>For anything about privacy, please <a href="{{ u('contact') }}">contact us</a>.</p>
-  </div>
+  <!--/vm:article--></div>
 </div>
 {% endblock %}

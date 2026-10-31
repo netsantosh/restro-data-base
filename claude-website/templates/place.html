@@ -31,14 +31,14 @@
   {% endif %}
 
   {% if first_page and (bottom_intro or sections or faqs) %}
-  <section class="article">
+  <section class="article"><!--vm:article-->
     {% if bottom_intro %}
     <h2>About restaurants in {{ node.name }}</h2>
     {% for p in bottom_intro %}<p>{{ p }}</p>{% endfor %}
     {% endif %}
     {{ m.prose(sections) }}
     {{ m.faq(faqs) }}
-  </section>
+  <!--/vm:article--></section>
   {% endif %}
 
   {% if not first_page %}

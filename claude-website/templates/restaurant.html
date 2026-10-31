@@ -80,11 +80,11 @@
   </section>
   {% endif %}
 
-  <section class="article rest-about">
+  <section class="article rest-about"><!--vm:article-->
     <h2>About {{ r.name }}</h2>
     {% for p in r.about %}<p>{{ p }}</p>{% endfor %}
     {{ m.faq(r.faqs) }}
-  </section>
+  <!--/vm:article--></section>
 
   {% if related_area %}
   <section class="block">
