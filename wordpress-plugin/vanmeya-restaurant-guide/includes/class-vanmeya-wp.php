@@ -57,6 +57,7 @@ class Vanmeya_WP {
         add_action('admin_post_vanmeya_retry', [__CLASS__, 'handle_retry']);
         add_action('wp_ajax_vanmeya_step', [__CLASS__, 'ajax_step']);
         add_action('wp_ajax_vanmeya_chunk', [__CLASS__, 'ajax_chunk']);
+        add_action('wp_ajax_vanmeya_unzip', [__CLASS__, 'ajax_unzip']);
         add_action('wp_ajax_vanmeya_btake', [__CLASS__, 'ajax_btake']);
         add_action('wp_ajax_vanmeya_bput', [__CLASS__, 'ajax_bput']);
         add_filter('cron_schedules', function ($s) { $s['vanmeya_minute'] = ['interval' => 60, 'display' => 'Every minute']; return $s; });
@@ -184,6 +185,12 @@ class Vanmeya_WP {
         echo '<div class="wrap"><h1>Vanmeya Restaurant Guide</h1>';
         if ($msg) echo '<div class="notice notice-info"><p>' . esc_html($msg) . '</p></div>';
 
+        $pages = (int)self::opt('html_pages', 0);
+        $mark = function ($ok) { return $ok ? '<span style="color:#1a7f37">&#10004;</span>' : '<span style="color:#b32d2e">&#9679;</span>'; };
+        echo '<div style="background:#fff;border:1px solid #c3c4c7;border-left:4px solid #2271b1;padding:12px 16px;max-width:820px;margin:14px 0"><strong>Status</strong><br>'
+            . $mark($c['pending'] === 0 && $c['done'] > 0) . ' Photos: <strong>' . number_format_i18n($c['done']) . '</strong> downloaded, ' . number_format_i18n($c['pending']) . ' waiting, ' . number_format_i18n($c['failed']) . ' failed (failed are mostly logos or tiny images that are skipped on purpose)<br>'
+            . $mark($installed) . ' Website pages: ' . ($installed ? '<strong>installed</strong>' . ($pages ? ', ' . number_format_i18n($pages) . ' pages' : '') . ' &middot; <a href="' . esc_url(home_url('/')) . '" target="_blank">open the website</a>' : '<strong>not installed yet</strong> (see step 3)') . '<br>'
+            . '<span id="vm-live" style="display:block;margin-top:6px;color:#1d2327"></span></div>';
         echo '<h2>1. Check this hosting</h2><table class="widefat striped" style="max-width:820px"><tbody>';
         foreach (self::check_rows() as $r) echo '<tr><td style="width:240px"><strong>' . esc_html($r[0]) . '</strong></td><td>' . esc_html($r[1]) . '</td><td style="width:30px">' . ($r[2] ? '&#10004;' : '&#9888;') . '</td></tr>';
         echo '</tbody></table>';
@@ -236,11 +243,17 @@ class Vanmeya_WP {
         function post(a,f){f.append("action",a);f.append("_wpnonce",NC);return fetch(AJ,{method:"POST",body:f,credentials:"same-origin"}).then(function(r){return r.json();});}
         document.querySelectorAll("form[data-chunk]").forEach(function(fm){fm.addEventListener("submit",function(e){
           var inp=fm.querySelector("input[type=file]"),file=inp&&inp.files[0];if(!file||fm.dataset.sent)return;e.preventDefault();
+          var live=document.getElementById("vm-live");function say(m,bad){live.textContent=m;live.style.color=bad?"#b32d2e":"#1d2327";live.style.fontWeight=bad?"600":"400";}
           var kind=fm.dataset.chunk,size=1048576,total=Math.ceil(file.size/size),i=0,btn=fm.querySelector("button");btn.disabled=true;
-          function next(){if(i>=total){fm.dataset.sent=1;inp.value="";var c=fm.querySelector("input[name=use_incoming]");c.checked=true;btn.textContent="Installing, please wait...";fm.submit();return;}
+          function next(){if(i>=total){inp.value="";if(kind==="zip"){install();return;}fm.dataset.sent=1;fm.querySelector("input[name=use_incoming]").checked=true;btn.textContent="Queueing, please wait...";fm.submit();return;}
             var f=new FormData();f.append("kind",kind);f.append("index",i);f.append("piece",file.slice(i*size,(i+1)*size),"p");
-            btn.textContent="Uploading "+Math.round(100*i/total)+"%";
-            post("vanmeya_chunk",f).then(function(j){if(!j.success){alert("Upload stopped: "+j.data);btn.disabled=false;btn.textContent="Try again";return;}i++;next();}).catch(function(){setTimeout(next,2000);});}
+            btn.textContent="Uploading "+Math.round(100*i/total)+"%";say("Uploading "+file.name+": "+Math.round(100*i/total)+"% (keep this page open)");
+            post("vanmeya_chunk",f).then(function(j){if(!j.success){say("Upload stopped: "+j.data,1);btn.disabled=false;btn.textContent="Try again";return;}i++;next();}).catch(function(){say("Connection hiccup, retrying...");setTimeout(next,2000);});}
+          function fail(m){say("Install stopped: "+m,1);btn.disabled=false;btn.textContent="Try again";}
+          function install(){say("Upload finished. Checking the zip...");var f=new FormData();f.append("phase","start");post("vanmeya_unzip",f).then(function(j){if(!j.success)return fail(j.data);step(0,j.data.total);}).catch(function(e){fail("no answer from the server ("+e+")");});}
+          function step(pos,tot){var f=new FormData();f.append("phase","run");f.append("pos",pos);btn.textContent="Unpacking "+Math.round(100*pos/tot)+"%";say("Unpacking website files: "+pos+" of "+tot+" (keep this page open)");
+            if(pos>=tot){var g=new FormData();g.append("phase","finish");post("vanmeya_unzip",g).then(function(j){if(!j.success)return fail(j.data);say("Done. The website is installed: "+j.data.pages+" pages. Reloading...");setTimeout(function(){location.href=location.pathname+"?page=vanmeya";},1500);}).catch(function(e){fail(""+e);});return;}
+            post("vanmeya_unzip",f).then(function(j){if(!j.success)return fail(j.data);step(j.data.pos,j.data.total);}).catch(function(){say("Connection hiccup, retrying...");setTimeout(function(){step(pos,tot);},2500);});}
           next();});});
         var bb=document.getElementById("vm-bstart"),bn=document.getElementById("vm-bnote"),brun=false;
         function toWebp(url){return fetch(url,{mode:"cors",referrerPolicy:"no-referrer"}).then(function(r){if(!r.ok)throw new Error("http_"+r.status);return r.blob();}).then(function(b){return createImageBitmap(b);}).then(function(bm){var w=bm.width,h=bm.height;if(w<200||h<200)throw new Error("too_small");var s=w>800?800/w:1,cv=document.createElement("canvas");cv.width=Math.round(w*s);cv.height=Math.round(h*s);cv.getContext("2d").drawImage(bm,0,0,cv.width,cv.height);return new Promise(function(ok,no){cv.toBlob(function(x){x?ok(x):no(new Error("encode"));},"image/webp",0.78);});});}
@@ -319,6 +332,64 @@ class Vanmeya_WP {
         wp_send_json_success(['size' => filesize($dest)]);
     }
 
+    /** Install the site zip in small steps, so a short time limit on the hosting cannot stop it. */
+    public static function ajax_unzip() {
+        if (!current_user_can(self::CAP) || !wp_verify_nonce(isset($_POST['_wpnonce']) ? $_POST['_wpnonce'] : '', 'vanmeya')) wp_send_json_error('Not allowed.');
+        if (!class_exists('ZipArchive')) wp_send_json_error('This hosting has no zip support.');
+        @set_time_limit(120);
+        register_shutdown_function(function () { $e = error_get_last(); if ($e && in_array($e['type'], [E_ERROR, E_PARSE, E_CORE_ERROR, E_COMPILE_ERROR], true)) { @header('Content-Type: application/json'); echo json_encode(['success' => false, 'data' => 'The server stopped: ' . $e['message']]); } });
+        $base = self::base_dir(); $new = $base . '/site_new'; $work = $base . '/work.zip'; $phase = isset($_POST['phase']) ? $_POST['phase'] : '';
+        if ($phase === 'start') {
+            $src = self::incoming() . '/site-for-hosting.zip';
+            if (!is_file($src)) wp_send_json_error('The uploaded file is missing on the hosting. Upload it again.');
+            $zip = new ZipArchive();
+            if ($zip->open($src) !== true) wp_send_json_error('That file is not a valid zip (the upload may be incomplete).');
+            for ($d = 0; $d < 2 && $zip->locateName('index.html') === false; $d++) {
+                $inner = false;
+                for ($i = 0; $i < $zip->numFiles; $i++) if (substr((string)$zip->getNameIndex($i), -4) === '.zip') { $inner = $i; break; }
+                if ($inner === false) break;
+                if (!@file_put_contents($base . '/inner.zip', $zip->getFromIndex($inner))) { $zip->close(); wp_send_json_error('Could not unpack the zip inside the zip (disk full?).'); }
+                $zip->close(); $zip = new ZipArchive();
+                if ($zip->open($base . '/inner.zip') !== true) wp_send_json_error('The zip inside the downloaded zip is not valid.');
+            }
+            $total = $zip->numFiles;
+            if ($zip->locateName('index.html') === false) { $zip->close(); wp_send_json_error('This zip has no index.html at its top level. It has ' . $total . ' entries; first one: ' . (string)$zip->getNameIndex(0) . '. Use site-for-hosting.zip from the hosting-site run.'); }
+            for ($i = 0; $i < $total; $i++) { $n = (string)$zip->getNameIndex($i); if (in_array('..', explode('/', str_replace('\\', '/', $n)), true) || $n === '' || $n[0] === '/' || strpos($n, "\0") !== false || strpos($n, ':') !== false) { $zip->close(); wp_send_json_error('The zip contains an unsafe path and was not installed.'); } }
+            $zip->close();
+            $from = is_file($base . '/inner.zip') ? $base . '/inner.zip' : $src;
+            if (!@copy($from, $work)) wp_send_json_error('Could not copy the zip (disk full?).');
+            @unlink($base . '/inner.zip');
+            self::rrmdir($new); wp_mkdir_p($new);
+            wp_send_json_success(['pos' => 0, 'total' => $total]);
+        }
+        if ($phase === 'run') {
+            $pos = (int)$_POST['pos'];
+            $zip = new ZipArchive();
+            if (!is_file($work) || $zip->open($work) !== true) wp_send_json_error('The working copy is missing. Start again.');
+            $total = $zip->numFiles; $t0 = time();
+            while ($pos < $total && time() - $t0 < 12) {
+                $names = [];
+                for ($i = $pos; $i < min($total, $pos + 200); $i++) $names[] = $zip->getNameIndex($i);
+                if (!$zip->extractTo($new, $names)) { $zip->close(); wp_send_json_error('Could not write files at ' . $pos . ' of ' . $total . ' (disk full or file limit reached?).'); }
+                $pos += count($names);
+            }
+            $zip->close();
+            wp_send_json_success(['pos' => $pos, 'total' => $total]);
+        }
+        if ($phase === 'finish') {
+            $old = $base . '/site_old'; $cur = self::site_dir();
+            if (!is_file($new . '/index.html')) wp_send_json_error('Unpacking did not produce index.html. Start again.');
+            self::rrmdir($old);
+            if (is_dir($cur)) rename($cur, $old);
+            if (!rename($new, $cur)) wp_send_json_error('Could not switch to the new website.');
+            self::rrmdir($old); @unlink($work); @unlink(self::incoming() . '/site-for-hosting.zip');
+            $html = 0; foreach (new RecursiveIteratorIterator(new RecursiveDirectoryIterator($cur, FilesystemIterator::SKIP_DOTS)) as $f) if (substr($f->getFilename(), -5) === '.html') $html++;
+            self::set_opt('html_pages', $html);
+            wp_send_json_success(['pages' => $html, 'url' => home_url('/')]);
+        }
+        wp_send_json_error('Unknown step.');
+    }
+
     /** Photos fetched by the visitor's own browser: hand out links ... */
     public static function ajax_btake() {
         if (!current_user_can(self::CAP) || !wp_verify_nonce(isset($_POST['_wpnonce']) ? $_POST['_wpnonce'] : '', 'vanmeya')) wp_send_json_error('Not allowed.');
@@ -371,7 +442,7 @@ class Vanmeya_WP {
         $names = [];
         for ($i = 0; $i < $zip->numFiles; $i++) {
             $n = $zip->getNameIndex($i);
-            if ($n === false || strpos($n, '..') !== false || $n[0] === '/' || strpos($n, "\0") !== false || strpos($n, ':') !== false) { $zip->close(); self::back('The zip contains an unsafe path and was not installed.'); }
+            if ($n === false || in_array('..', explode('/', str_replace('\\', '/', $n)), true) || $n[0] === '/' || strpos($n, "\0") !== false || strpos($n, ':') !== false) { $zip->close(); self::back('The zip contains an unsafe path and was not installed.'); }
             $names[] = $n;
         }
         if (!in_array('index.html', $names, true)) { $zip->close(); self::back('This zip has no index.html at its top level. Use site-for-hosting.zip from the hosting-site run.'); }
