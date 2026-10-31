@@ -21,7 +21,7 @@ class Vanmeya_Editor_Admin {
     }
 
     public static function init() {
-        add_action('admin_menu', function () { add_submenu_page('vanmeya', 'Pages & content', 'Pages & content', Vanmeya_WP::CAP, 'vanmeya-pages', [__CLASS__, 'page']); });
+        add_action('admin_menu', function () { add_submenu_page('vanmeya', 'Pages & content', 'Pages & content', Vanmeya_WP::CAP, 'vanmeya-pages', [__CLASS__, 'page']); }, 20);
         add_action('admin_post_vanmeya_edit_save', [__CLASS__, 'save']);
         add_action('admin_post_vanmeya_edit_reset', [__CLASS__, 'reset']);
         add_action('admin_post_vanmeya_new', [__CLASS__, 'create']);
@@ -35,7 +35,8 @@ class Vanmeya_Editor_Admin {
         $d = json_decode($r['data'], true);
         return is_array($d) ? ['data' => $d, 'custom' => (int)$r['custom']] : null;
     }
-    private static function put($key, $data, $custom) {
+    public static function remove($key) { global $wpdb; $wpdb->delete(self::table(), ['path' => $key]); }
+    public static function put($key, $data, $custom) {
         global $wpdb;
         $wpdb->query($wpdb->prepare("REPLACE INTO " . self::table() . " (path, data, custom, updated) VALUES (%s, %s, %d, %s)", $key, wp_json_encode($data), $custom, current_time('mysql', true)));
     }
@@ -144,6 +145,11 @@ class Vanmeya_Editor_Admin {
             if (!$custom) echo '<p class="description">This replaces the text block of the page (paragraphs, FAQ). Leave it as it is to keep the original.</p>';
             wp_editor(isset($d['article']) && $d['article'] !== '' ? $d['article'] : (string)$orig['article'], 'vm_article', ['textarea_name' => 'article', 'textarea_rows' => 14, 'media_buttons' => false]);
         }
+        echo '<h3>Search engine settings for this page</h3><table class="form-table"><tbody>';
+        echo '<tr><th style="width:170px">Hide from Google</th><td><label><input type="checkbox" name="noindex" value="1"' . checked(!empty($d['noindex']), true, false) . '> Do not show this page in Google (noindex). It is also left out of the sitemap.</label></td></tr>';
+        self::field('Canonical address', 'canonical', isset($d['canonical']) ? $d['canonical'] : '', 'Only if this page is a copy of another page: type the full https:// address of the main page. Otherwise leave empty.');
+        self::field('Social share image', 'ogimage', isset($d['ogimage']) ? $d['ogimage'] : '', 'Full https:// address of an image shown when the page is shared (1200 x 630 works best). Optional.');
+        echo '<tr><th>Extra structured data</th><td><textarea name="schema" rows="4" class="large-text code">' . esc_textarea(isset($d['schema']) ? $d['schema'] : '') . '</textarea><p class="description">Advanced and optional: JSON-LD code (starts with { ). It is checked before saving.</p></td></tr></tbody></table>';
         echo '<h3>Extra content to add</h3><p class="description">Anything you write here is added at the bottom of the page. Works on every page.</p>';
         wp_editor(isset($d['extra']) ? $d['extra'] : '', 'vm_extra', ['textarea_name' => 'extra', 'textarea_rows' => 8, 'media_buttons' => false]);
         echo '<p><button class="button button-primary">Save changes</button> ';
@@ -182,9 +188,14 @@ class Vanmeya_Editor_Admin {
         $art = isset($_POST['article']) ? trim(wp_kses_post(wp_unslash($_POST['article']))) : '';
         $norm = function ($s) { return preg_replace('/\s+/', ' ', trim((string)$s)); };
         if ($art !== '' && ($custom || $orig['article'] === null || $norm($art) !== $norm($orig['article']))) $d['article'] = $art;
+        if (!empty($_POST['noindex'])) $d['noindex'] = 1;
+        $cn = esc_url_raw(self::in('canonical')); if ($cn !== '' && preg_match('#^https?://#i', $cn)) $d['canonical'] = $cn;
+        $og = esc_url_raw(self::in('ogimage')); if ($og !== '' && preg_match('#^https?://#i', $og)) $d['ogimage'] = $og;
+        $sc = self::in('schema'); if ($sc !== '') { $j = json_decode($sc, true); if (!is_array($j)) self::back(['edit' => $arg], 'The structured data is not valid JSON, so nothing was saved. Fix it or empty the box.'); $d['schema'] = $sc; }
         $extra = isset($_POST['extra']) ? trim(wp_kses_post(wp_unslash($_POST['extra']))) : '';
         if ($extra !== '') $d['extra'] = $extra;
         if (!$d && !$custom) { global $wpdb; $wpdb->delete(self::table(), ['path' => $key]); self::back(['edit' => $arg], 'Nothing was changed from the original.'); }
+        if (!empty($saved['data']['_auto']) && !isset($d['title']) && !isset($d['desc'])) { /* hand edit replaces pattern result */ }
         self::put($key, $d, $custom ? 1 : 0);
         self::back(['edit' => $arg], 'Saved. The page is updated now.');
     }
