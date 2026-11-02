@@ -89,7 +89,7 @@ class Vanmeya_Seo_Admin {
 
     private static function tab_audit() {
         $rows = self::rows(); $edits = self::all_edits();
-        if (!$rows) { echo '<p>The list of pages is missing from the installed website. Run the hosting-site workflow again and upload the new zip.</p>'; return; }
+        if (!$rows) { echo '<div class="vm-card"><h2>The list of pages is not ready yet</h2><p>Open <a href="' . esc_url(add_query_arg(['page' => 'vanmeya-pages'], admin_url('admin.php'))) . '">Pages &amp; content</a> once. It builds the list by itself in about a minute. Then come back here.</p></div>'; return; }
         self::help('<strong>What this does.</strong> It checks every page for the basics Google cares about: a title, a description, a heading, and no duplicates. Click <em>Show</em> to see the pages with a problem, then <em>Edit</em> to fix them, or fix many at once in the <em>Bulk edit in Excel</em> tab.');
         $res = Vanmeya_Seo_Core::audit($rows, $edits); $labels = Vanmeya_Seo_Core::issue_labels();
         $issue = isset($_GET['issue']) ? sanitize_key($_GET['issue']) : '';
