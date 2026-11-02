@@ -58,6 +58,7 @@ class Vanmeya_Store_Memory {
     public $items = [];   // id => [id, place_id, idx, url, status, tries]
     private $next = 1;
     public function reset() { $this->items = []; $this->next = 1; }
+    public function set_alt($id, $alt) { if (isset($this->items[$id])) $this->items[$id]['alt'] = $alt; }
     /** Adds a photo to the queue. A photo that is already stored with the same link is left alone. */
     public function add($place_id, $idx, $url) {
         foreach ($this->items as &$it) {
@@ -73,9 +74,10 @@ class Vanmeya_Store_Memory {
     public function take($n, $max_tries) {
         $out = [];
         foreach ($this->items as $it) {
-            if ($it['status'] === 'pending' && $it['tries'] < $max_tries) { $out[] = $it; if (count($out) >= $n) break; }
+            if ($it['status'] === 'pending' && $it['tries'] < $max_tries) { if (!empty($it['alt'])) $it['url'] = $it['alt']; $out[] = $it; }
         }
-        return $out;
+        usort($out, function ($a, $b) { return [$a['tries'], $a['id']] <=> [$b['tries'], $b['id']]; });
+        return array_slice($out, 0, $n);
     }
     public function finish($id, $status, $bump_tries, $note = '') {
         $this->items[$id]['status'] = $status;
@@ -157,6 +159,9 @@ class Vanmeya_Images {
                     $perm = in_array($code, [400, 401, 403, 404, 410], true);
                 } else { $why = $this->save($it, $body); $perm = in_array($why, ['too_small', 'not_an_image'], true); }
                 $limit = $net ? $this->net_tries : $this->max_tries;
+                if ($why === 'too_small' && method_exists($this->store, 'set_alt') && ($big = self::enlarge($it['url'])) !== $it['url']) {
+                    $this->store->set_alt($it['id'], $big); $this->store->finish($it['id'], 'pending', false, ''); $res['retry']++; continue;   // ask Google for a bigger picture once
+                }
                 if ($why === '') { $this->store->finish($it['id'], 'done', false, ''); $res['ok']++; }
                 elseif ($perm || $it['tries'] + 1 >= $limit) { $this->store->finish($it['id'], 'failed', true, $why); $res['failed']++; }
                 else { $this->store->finish($it['id'], 'pending', true, $why); $res['retry']++; }
@@ -200,6 +205,15 @@ class Vanmeya_Images {
         }
         curl_multi_close($mh);
         return $out;
+    }
+
+    /** A bigger version of a Google photo link (their links carry the size after an equals sign). Same link back if there is nothing bigger to ask for. */
+    public static function enlarge($url) {
+        $host = (string)parse_url($url, PHP_URL_HOST);
+        if (!preg_match('/(^|\.)googleusercontent\.com$/', $host)) return $url;
+        if (preg_match('#^(https?://[^=\s]+)=[A-Za-z0-9\-_]+$#', $url, $m)) return $m[1] . '=s1200';
+        if (strpos($url, '=') === false) return $url . '=s1200';
+        return $url;
     }
 
     /** Plain-words check of one address: what happened and why. Used by the Test button. */

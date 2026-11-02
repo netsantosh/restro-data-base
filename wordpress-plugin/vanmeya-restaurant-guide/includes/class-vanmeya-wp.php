@@ -11,12 +11,12 @@ class Vanmeya_Store_Wpdb {
         global $wpdb;
         $wpdb->query($wpdb->prepare(
             "INSERT INTO {$this->t} (folder, idx, url, status, tries) VALUES (%s, %d, %s, 'pending', 0)
-             ON DUPLICATE KEY UPDATE status = IF(url = VALUES(url) AND status = 'done', 'done', 'pending'), tries = IF(url = VALUES(url) AND status = 'done', tries, 0), url = VALUES(url)",
+             ON DUPLICATE KEY UPDATE status = IF(url = VALUES(url) AND status = 'done', 'done', 'pending'), tries = IF(url = VALUES(url) AND status = 'done', tries, 0), alt = IF(url = VALUES(url), alt, ''), url = VALUES(url)",
             $folder, $idx, $url));
     }
     public function take($n, $max_tries) {
         global $wpdb;
-        $rows = $wpdb->get_results($wpdb->prepare("SELECT id, folder, idx, url, tries FROM {$this->t} WHERE status = 'pending' AND tries < %d ORDER BY tries, id LIMIT %d", $max_tries, $n), ARRAY_A);
+        $rows = $wpdb->get_results($wpdb->prepare("SELECT id, folder, idx, COALESCE(NULLIF(alt, ''), url) AS url, tries FROM {$this->t} WHERE status = 'pending' AND tries < %d ORDER BY tries, id LIMIT %d", $max_tries, $n), ARRAY_A);
         foreach ($rows as &$r) { $r['place_id'] = $r['folder']; $r['id'] = (int)$r['id']; $r['idx'] = (int)$r['idx']; $r['tries'] = (int)$r['tries']; }
         return $rows;
     }
@@ -36,9 +36,25 @@ class Vanmeya_Store_Wpdb {
         foreach ($wpdb->get_results("SELECT status, COUNT(*) n FROM {$this->t} GROUP BY status", ARRAY_A) as $r) { $c[$r['status']] = (int)$r['n']; }
         return $c;
     }
-    public function retry_failed() { global $wpdb; return $wpdb->query("UPDATE {$this->t} SET status = 'pending', tries = 0 WHERE status = 'failed'"); }
-    public function get($id) { global $wpdb; $r = $wpdb->get_row($wpdb->prepare("SELECT id, folder, idx, url, tries FROM {$this->t} WHERE id = %d", $id), ARRAY_A); if ($r) { $r['place_id'] = $r['folder']; $r['id'] = (int)$r['id']; $r['idx'] = (int)$r['idx']; } return $r; }
-    public function browser_take($n) { global $wpdb; return $wpdb->get_results($wpdb->prepare("SELECT id, url FROM {$this->t} WHERE status IN ('pending','failed') AND note NOT LIKE 'browser%%' ORDER BY id LIMIT %d", $n), ARRAY_A); }
+    /** Put problem photos back in the queue. Tiny ones get a bigger link; expired ones (404) are left alone. */
+    public function retry_failed() {
+        global $wpdb; $n = 0; $plain = [];
+        foreach ($wpdb->get_results("SELECT id, url, alt, note FROM {$this->t} WHERE status = 'failed'", ARRAY_A) as $r) {
+            $note = (string)$r['note'];
+            if (strpos($note, 'http_404') !== false || strpos($note, 'http_410') !== false) continue;
+            if (strpos($note, 'too_small') !== false || strpos($note, 'not_an_image') !== false) {
+                $cur = $r['alt'] !== '' ? $r['alt'] : $r['url']; $big = Vanmeya_Images::enlarge($cur);
+                if ($big === $cur) continue;                                  // nothing bigger exists: truly too small
+                $wpdb->update($this->t, ['alt' => $big, 'status' => 'pending', 'tries' => 0, 'note' => ''], ['id' => (int)$r['id']]); $n++;
+            } else { $plain[] = (int)$r['id']; }
+        }
+        foreach (array_chunk($plain, 500) as $ids) { $n += (int)$wpdb->query("UPDATE {$this->t} SET status = 'pending', tries = 0, note = '' WHERE id IN (" . implode(',', $ids) . ")"); }
+        return $n;
+    }
+    public function set_alt($id, $alt) { global $wpdb; $wpdb->update($this->t, ['alt' => $alt], ['id' => $id]); }
+    public function skipped() { global $wpdb; return (int)$wpdb->get_var("SELECT COUNT(*) FROM {$this->t} WHERE status = 'failed' AND (note LIKE '%too_small%' OR note LIKE '%not_an_image%')"); }
+    public function get($id) { global $wpdb; $r = $wpdb->get_row($wpdb->prepare("SELECT id, folder, idx, COALESCE(NULLIF(alt, ''), url) AS url, tries FROM {$this->t} WHERE id = %d", $id), ARRAY_A); if ($r) { $r['place_id'] = $r['folder']; $r['id'] = (int)$r['id']; $r['idx'] = (int)$r['idx']; } return $r; }
+    public function browser_take($n) { global $wpdb; return $wpdb->get_results($wpdb->prepare("SELECT id, COALESCE(NULLIF(alt, ''), url) AS url FROM {$this->t} WHERE status IN ('pending','failed') AND note NOT LIKE 'browser%%' ORDER BY (status = 'pending') DESC, id LIMIT %d", $n), ARRAY_A); }
     public function failed_sample($n = 40) { global $wpdb; return $wpdb->get_results($wpdb->prepare("SELECT folder, idx, url FROM {$this->t} WHERE status = 'failed' ORDER BY id LIMIT %d", $n), ARRAY_A); }
 }
 
@@ -46,12 +62,13 @@ class Vanmeya_WP {
     const CAP = 'manage_options';
 
     public static function init() {
-        if (get_option('vanmeya_db') !== '4') { add_action('init', function () { self::activate(); update_option('vanmeya_db', '4', false); }, 1); }
+        if (get_option('vanmeya_db') !== '5') { add_action('init', function () { self::activate(); update_option('vanmeya_db', '5', false); }, 1); }
         Vanmeya_Editor_Admin::init();
         Vanmeya_Seo_Admin::init();
         add_action('init', [__CLASS__, 'serve_site'], 0);
         add_action('template_redirect', [__CLASS__, 'serve_404'], 0);
         add_action('admin_menu', [__CLASS__, 'menu']);
+        add_action('admin_head', [__CLASS__, 'admin_css']);
         add_action('admin_post_vanmeya_csv', [__CLASS__, 'handle_csv']);
         add_action('admin_post_vanmeya_zip', [__CLASS__, 'handle_zip']);
         add_action('admin_post_vanmeya_settings', [__CLASS__, 'handle_settings']);
@@ -89,6 +106,7 @@ class Vanmeya_WP {
             status VARCHAR(10) NOT NULL DEFAULT 'pending',
             tries TINYINT UNSIGNED NOT NULL DEFAULT 0,
             note VARCHAR(40) NOT NULL DEFAULT '',
+            alt TEXT NULL,
             PRIMARY KEY  (id),
             UNIQUE KEY photo (folder, idx),
             KEY status (status)
@@ -215,25 +233,7 @@ class Vanmeya_WP {
         add_action('admin_menu', function () { add_submenu_page('vanmeya', 'Settings', 'Settings', self::CAP, 'vanmeya-settings', [__CLASS__, 'page']); }, 99);
     }
 
-    private static function dashboard_extras($c, $installed) {
-        $seo = Vanmeya_Seo_Admin::settings();
-        $mark = function ($ok) { return $ok ? '<span style="color:#1a7f37">&#10004;</span>' : '<span style="color:#b32d2e">&#9679;</span>'; };
-        $link = function ($page, $label, $extra = []) { return '<a href="' . esc_url(add_query_arg(array_merge(['page' => $page], $extra), admin_url('admin.php'))) . '">' . esc_html($label) . '</a>'; };
-        $hidden = (int)self::opt('noindex', 1);
-        echo '<div style="background:#fff;border:1px solid #c3c4c7;padding:12px 16px;max-width:820px;margin:14px 0"><strong>Your SEO</strong><br>'
-            . $mark(!$hidden) . ' Visible to Google: ' . ($hidden ? '<strong>no, hidden (staging mode).</strong> Change it in ' . $link('vanmeya-settings', 'Settings') . ' when you go live.' : '<strong>yes</strong>') . '<br>'
-            . $mark(!empty($seo['gsc'])) . ' Search Console verification: ' . (!empty($seo['gsc']) ? 'added' : 'not added') . ' &middot; ' . $mark(!empty($seo['ga4']) || !empty($seo['gtm'])) . ' Analytics: ' . (!empty($seo['ga4']) || !empty($seo['gtm']) ? 'added' : 'not added') . ' (' . $link('vanmeya-seo', 'set up', ['tab' => 'tracking']) . ')<br>'
-            . '&rarr; ' . $link('vanmeya-seo', 'Check my pages for SEO problems') . '</div>';
-        echo '<div style="background:#fff;border:1px solid #c3c4c7;padding:12px 16px;max-width:820px;margin:14px 0"><strong>Where do I do what?</strong><ol style="margin:8px 0 0 18px">'
-            . '<li>' . $link('vanmeya-photos', 'Photos') . ': upload the images file from GitHub and download the restaurant photos.</li>'
-            . '<li>' . $link('vanmeya-website', 'Website') . ': upload the website zip from GitHub. This creates all the pages.</li>'
-            . '<li>' . $link('vanmeya-pages', 'Pages & content') . ': find any page, change its text, add extra content, or add a new page.</li>'
-            . '<li>' . $link('vanmeya-seo', 'SEO') . ': check problems, edit titles in bulk, set rules, redirects, tracking and robots.txt.</li>'
-            . '<li>' . $link('vanmeya-settings', 'Settings') . ': hide or show the site to Google, background downloads.</li></ol>'
-            . '<p class="description">New restaurants or new text in the Google Sheets: run the GitHub workflow, then upload again in Photos or Website.</p></div>';
-    }
-
-    private static function check_rows() {
+    public static function check_rows() {
         $up = wp_upload_dir();
         $free = @disk_free_space($up['basedir']);
         $rows = [
@@ -252,104 +252,24 @@ class Vanmeya_WP {
     public static function page() {
         if (!current_user_can(self::CAP)) return;
         $st = new Vanmeya_Store_Wpdb();
-        $c = $st->counts();
-        $total = max(1, array_sum($c));
+        $c = $st->counts(); $c['skipped'] = $st->skipped();
         $nonce = wp_create_nonce('vanmeya');
         $installed = is_file(self::site_dir() . '/index.html');
-        $msg = isset($_GET['vm']) ? sanitize_text_field(wp_unslash($_GET['vm'])) : '';
         $pg = isset($_GET['page']) ? sanitize_key($_GET['page']) : 'vanmeya';
         $sec = ['vanmeya-photos' => 'photos', 'vanmeya-website' => 'site', 'vanmeya-settings' => 'settings'][$pg] ?? 'dash';
-        $titles = ['dash' => 'Vanmeya: start here', 'photos' => 'Photos', 'site' => 'Website', 'settings' => 'Settings'];
-        echo '<div class="wrap"><h1>' . esc_html($titles[$sec]) . '</h1>';
-        if ($msg) echo '<div class="notice notice-info"><p>' . esc_html($msg) . '</p></div>';
+        $titles = ['dash' => 'Vanmeya', 'photos' => 'Photos', 'site' => 'Website', 'settings' => 'Settings'];
+        echo '<div class="wrap vm"><h1>' . esc_html($titles[$sec]) . '</h1>';
+        if (!empty($_GET['vm'])) echo '<div class="notice notice-info"><p>' . esc_html(sanitize_text_field(wp_unslash($_GET['vm']))) . '</p></div>';
+        if ($sec === 'dash') Vanmeya_UI::dashboard($c, $installed, (int)self::opt('html_pages', 0));
+        elseif ($sec === 'photos') Vanmeya_UI::photos($c, $st, $nonce);
+        elseif ($sec === 'site') Vanmeya_UI::website($installed, (int)self::opt('html_pages', 0), $nonce);
+        else Vanmeya_UI::settings($nonce);
+        echo '<script>' . Vanmeya_UI::js(admin_url('admin-ajax.php'), $nonce) . '</script></div>';
+    }
 
-        if ($sec !== 'dash') echo '<p id="vm-live" style="font-weight:600"></p>';
-        $pages = (int)self::opt('html_pages', 0);
-        if ($sec === 'dash') {
-        $mark = function ($ok) { return $ok ? '<span style="color:#1a7f37">&#10004;</span>' : '<span style="color:#b32d2e">&#9679;</span>'; };
-        echo '<div style="background:#fff;border:1px solid #c3c4c7;border-left:4px solid #2271b1;padding:12px 16px;max-width:820px;margin:14px 0"><strong>Status</strong><br>'
-            . $mark($c['pending'] === 0 && $c['done'] > 0) . ' Photos: <strong>' . number_format_i18n($c['done']) . '</strong> downloaded, ' . number_format_i18n($c['pending']) . ' waiting, ' . number_format_i18n($c['failed']) . ' failed (failed are mostly logos or tiny images that are skipped on purpose)<br>'
-            . $mark($installed) . ' Website pages: ' . ($installed ? '<strong>installed</strong>' . ($pages ? ', ' . number_format_i18n($pages) . ' pages' : '') . ' &middot; <a href="' . esc_url(home_url('/')) . '" target="_blank">open the website</a>' : '<strong>not installed yet</strong> (see step 3)') . '<br>'
-            . '<span id="vm-live" style="display:block;margin-top:6px;color:#1d2327"></span></div>';
-        self::dashboard_extras($c, $installed);
-        echo '<h2>Check this hosting</h2><table class="widefat striped" style="max-width:820px"><tbody>';
-        foreach (self::check_rows() as $r) echo '<tr><td style="width:240px"><strong>' . esc_html($r[0]) . '</strong></td><td>' . esc_html($r[1]) . '</td><td style="width:30px">' . ($r[2] ? '&#10004;' : '&#9888;') . '</td></tr>';
-        echo '</tbody></table>';
-
-        }
-        if ($sec === 'photos') {
-        echo '<h2>Photos</h2><p>Upload the <strong>images_database.csv</strong> file from the GitHub run. The plugin downloads each restaurant\'s photos into its own folder: <code>' . esc_html(self::photo_base_url_path()) . '/&lt;place_id&gt;/1.webp</code>, 2.webp and so on.</p>';
-        echo '<form method="post" enctype="multipart/form-data" data-chunk="csv" action="' . esc_url(admin_url('admin-post.php')) . '">';
-        echo '<input type="hidden" name="action" value="vanmeya_csv"><input type="hidden" name="_wpnonce" value="' . esc_attr($nonce) . '">';
-        echo '<input type="file" name="csv" accept=".csv"> <button class="button button-primary">Upload and queue photos</button> ';
-        echo '<label style="margin-left:12px"><input type="checkbox" name="use_incoming" value="1"> use <code>incoming/images_database.csv</code> instead (for very large files)</label></form>';
-
-        echo '<div style="max-width:820px;margin:14px 0"><div style="background:#e5e5e5;height:18px;border-radius:9px;overflow:hidden"><div id="vm-bar" style="background:#1d2327;height:100%;width:' . esc_attr(round(100 * $c['done'] / $total)) . '%"></div></div>';
-        echo '<p id="vm-text">Downloaded <strong id="vm-done">' . (int)$c['done'] . '</strong> &middot; waiting <strong id="vm-pending">' . (int)$c['pending'] . '</strong> &middot; failed <strong id="vm-failed">' . (int)$c['failed'] . '</strong></p>';
-        echo '<button class="button button-primary" id="vm-start">Start downloading</button> <button class="button" id="vm-stop" disabled>Pause</button> ';
-        echo '<span id="vm-note" style="margin-left:10px;color:#555">Keep this page open while it runs. You can pause and continue at any time.</span></div>';
-        echo '<p style="margin:12px 0"><button class="button" id="vm-bstart">Download with my own browser instead</button> <span id="vm-bnote" class="description">Use this if the hosting cannot reach Google: your computer fetches the photos and sends them to the hosting. Keep this page open.</span></p>';
-        echo '<form method="post" action="' . esc_url(admin_url('admin-post.php')) . '" style="margin:12px 0"><input type="hidden" name="action" value="vanmeya_test"><input type="hidden" name="_wpnonce" value="' . esc_attr($nonce) . '"><button class="button">Test the connection to Google photos</button> <span class="description">Tries one photo link and tells you exactly what happens.</span></form>';
-        if ($c['failed']) {
-            echo '<form method="post" action="' . esc_url(admin_url('admin-post.php')) . '"><input type="hidden" name="action" value="vanmeya_retry"><input type="hidden" name="_wpnonce" value="' . esc_attr($nonce) . '"><button class="button">Try the ' . (int)$c['failed'] . ' failed photos again</button> <span class="description">Failed photos are usually links that expired. Upload a newer images database to replace them.</span></form>';
-            $why = $st->reasons();
-            echo '<p><strong>Why photos failed:</strong> ';
-            foreach ($why as $k => $n) echo '<code>' . esc_html($k) . '</code> ' . (int)$n . ' &nbsp; ';
-            echo '</p><details style="margin:10px 0"><summary>Show some failed photos</summary><ul>';
-            foreach ($st->failed_sample() as $f) echo '<li><code>' . esc_html($f['folder'] . ' #' . $f['idx']) . '</code> ' . esc_html(wp_html_excerpt($f['url'], 90, '...')) . '</li>';
-            echo '</ul></details>';
-        }
-
-        }
-        if ($sec === 'site') {
-        echo '<h2>Website pages</h2><p>Upload <strong>site-for-hosting.zip</strong> from the "hosting-site" GitHub run. When it is installed, the plugin shows the guide at the root of this site (<code>' . esc_html(home_url('/')) . '</code>).</p>';
-        echo '<p>The site builder needs this photo path: <code>' . esc_html(self::photo_base_url_path()) . '</code></p>';
-        echo '<p>' . ($installed ? '<strong>Installed.</strong> Last updated ' . esc_html(date_i18n('j M Y, H:i', filemtime(self::site_dir() . '/index.html'))) . '. <a href="' . esc_url(home_url('/')) . '" target="_blank">Open the website</a>' : 'Not installed yet.') . '</p>';
-        echo '<form method="post" enctype="multipart/form-data" data-chunk="zip" action="' . esc_url(admin_url('admin-post.php')) . '">';
-        echo '<input type="hidden" name="action" value="vanmeya_zip"><input type="hidden" name="_wpnonce" value="' . esc_attr($nonce) . '">';
-        echo '<input type="file" name="zip" accept=".zip"> <button class="button button-primary">Upload and install</button> ';
-        echo '<label style="margin-left:12px"><input type="checkbox" name="use_incoming" value="1"> use <code>incoming/site-for-hosting.zip</code> instead</label></form>';
-        echo '<p class="description">Large files: put them in <code>' . esc_html(self::incoming()) . '</code> with your hosting file manager, then tick the box.</p>';
-
-        }
-        if ($sec === 'settings') {
-        echo '<h2>Settings</h2><form method="post" action="' . esc_url(admin_url('admin-post.php')) . '"><input type="hidden" name="action" value="vanmeya_settings"><input type="hidden" name="_wpnonce" value="' . esc_attr($nonce) . '">';
-        echo '<p><label><input type="checkbox" name="noindex" value="1" ' . checked(self::opt('noindex', 1), 1, false) . '> <strong>Hide this site from Google</strong> (keep ticked on a staging site; untick when you go live)</label></p>';
-        echo '<p><label><input type="checkbox" name="background" value="1" ' . checked(self::opt('background', 0), 1, false) . '> Keep downloading in the background when this page is closed (needs site visits or a server cron job)</label></p>';
-        echo '<p><button class="button">Save settings</button></p></form>';
-
-        }
-        $ajax = esc_url(admin_url('admin-ajax.php'));
-        echo '<script>(function(){var run=false,btn=document.getElementById("vm-start"),stop=document.getElementById("vm-stop"),note=document.getElementById("vm-note");if(!btn)return;
-        function upd(c){var t=c.done+c.pending+c.failed||1;document.getElementById("vm-done").textContent=c.done;document.getElementById("vm-pending").textContent=c.pending;document.getElementById("vm-failed").textContent=c.failed;document.getElementById("vm-bar").style.width=Math.round(100*c.done/t)+"%";}
-        function loop(){if(!run)return;var f=new FormData();f.append("action","vanmeya_step");f.append("_wpnonce","' . esc_js($nonce) . '");
-        fetch("' . $ajax . '",{method:"POST",body:f,credentials:"same-origin"}).then(function(r){return r.json();}).then(function(j){if(!j.success){note.textContent="Stopped: "+(j.data||"error");run=false;btn.disabled=false;stop.disabled=true;return;}
-        upd(j.data.counts);if(j.data.counts.pending===0){note.textContent="Finished.";run=false;btn.disabled=false;stop.disabled=true;return;}note.textContent="Working...";setTimeout(loop,200);}).catch(function(){note.textContent="Connection problem, trying again...";setTimeout(loop,3000);});}
-        btn.onclick=function(){run=true;btn.disabled=true;stop.disabled=false;loop();};stop.onclick=function(){run=false;btn.disabled=false;stop.disabled=true;note.textContent="Paused.";};})();</script>';
-
-        echo '<script>(function(){var AJ="' . $ajax . '",NC="' . esc_js($nonce) . '";
-        function post(a,f){f.append("action",a);f.append("_wpnonce",NC);return fetch(AJ,{method:"POST",body:f,credentials:"same-origin"}).then(function(r){return r.json();});}
-        document.querySelectorAll("form[data-chunk]").forEach(function(fm){fm.addEventListener("submit",function(e){
-          var inp=fm.querySelector("input[type=file]"),file=inp&&inp.files[0];if(!file||fm.dataset.sent)return;e.preventDefault();
-          var live=document.getElementById("vm-live");function say(m,bad){live.textContent=m;live.style.color=bad?"#b32d2e":"#1d2327";live.style.fontWeight=bad?"600":"400";}
-          var kind=fm.dataset.chunk,size=1048576,total=Math.ceil(file.size/size),i=0,btn=fm.querySelector("button");btn.disabled=true;
-          function next(){if(i>=total){inp.value="";if(kind==="zip"){install();return;}fm.dataset.sent=1;fm.querySelector("input[name=use_incoming]").checked=true;btn.textContent="Queueing, please wait...";fm.submit();return;}
-            var f=new FormData();f.append("kind",kind);f.append("index",i);f.append("piece",file.slice(i*size,(i+1)*size),"p");
-            btn.textContent="Uploading "+Math.round(100*i/total)+"%";say("Uploading "+file.name+": "+Math.round(100*i/total)+"% (keep this page open)");
-            post("vanmeya_chunk",f).then(function(j){if(!j.success){say("Upload stopped: "+j.data,1);btn.disabled=false;btn.textContent="Try again";return;}i++;next();}).catch(function(){say("Connection hiccup, retrying...");setTimeout(next,2000);});}
-          function fail(m){say("Install stopped: "+m,1);btn.disabled=false;btn.textContent="Try again";}
-          function install(){say("Upload finished. Checking the zip...");var f=new FormData();f.append("phase","start");post("vanmeya_unzip",f).then(function(j){if(!j.success)return fail(j.data);step(0,j.data.total);}).catch(function(e){fail("no answer from the server ("+e+")");});}
-          function step(pos,tot){var f=new FormData();f.append("phase","run");f.append("pos",pos);btn.textContent="Unpacking "+Math.round(100*pos/tot)+"%";say("Unpacking website files: "+pos+" of "+tot+" (keep this page open)");
-            if(pos>=tot){var g=new FormData();g.append("phase","finish");post("vanmeya_unzip",g).then(function(j){if(!j.success)return fail(j.data);say("Done. The website is installed: "+j.data.pages+" pages. Reloading...");setTimeout(function(){location.href=location.pathname+"?page=vanmeya-website";},1500);}).catch(function(e){fail(""+e);});return;}
-            post("vanmeya_unzip",f).then(function(j){if(!j.success)return fail(j.data);step(j.data.pos,j.data.total);}).catch(function(){say("Connection hiccup, retrying...");setTimeout(function(){step(pos,tot);},2500);});}
-          next();});});
-        var bb=document.getElementById("vm-bstart"),bn=document.getElementById("vm-bnote"),brun=false;
-        function toWebp(url){return fetch(url,{mode:"cors",referrerPolicy:"no-referrer"}).then(function(r){if(!r.ok)throw new Error("http_"+r.status);return r.blob();}).then(function(b){return createImageBitmap(b);}).then(function(bm){var w=bm.width,h=bm.height;if(w<200||h<200)throw new Error("too_small");var s=w>800?800/w:1,cv=document.createElement("canvas");cv.width=Math.round(w*s);cv.height=Math.round(h*s);cv.getContext("2d").drawImage(bm,0,0,cv.width,cv.height);return new Promise(function(ok,no){cv.toBlob(function(x){x?ok(x):no(new Error("encode"));},"image/webp",0.78);});});}
-        function one(it){return toWebp(it.url).then(function(b){var f=new FormData();f.append("id",it.id);f.append("img",b,"x.webp");return post("vanmeya_bput",f);}).catch(function(err){var f=new FormData();f.append("id",it.id);var m=(err&&err.message)||"error";f.append("fail",m==="Failed to fetch"?"blocked":m);return post("vanmeya_bput",f);});}
-        function bloop(){if(!brun)return;post("vanmeya_btake",new FormData()).then(function(j){if(!j.success||!j.data.items.length){bn.textContent="Finished (or nothing left to try).";brun=false;bb.textContent="Download with my own browser instead";return;}
-          Promise.all(j.data.items.map(one)).then(function(r){var c=r[r.length-1]&&r[r.length-1].data&&r[r.length-1].data.counts;if(c)bn.textContent="Downloaded "+c.done+", waiting "+c.pending+", failed "+c.failed+" (keep this page open)";bloop();});}).catch(function(){setTimeout(bloop,3000);});}
-        if(bb)bb.onclick=function(){if(brun){brun=false;bb.textContent="Download with my own browser instead";bn.textContent="Paused.";return;}brun=true;bb.textContent="Pause browser download";bn.textContent="Working...";bloop();};})();</script>';
-        echo '</div>';
+    public static function admin_css() {
+        $p = isset($_GET['page']) ? sanitize_key($_GET['page']) : '';
+        if (strpos($p, 'vanmeya') === 0) echo Vanmeya_UI::css();
     }
 
     /* ---------- actions ---------- */
@@ -406,7 +326,7 @@ class Vanmeya_WP {
         if (!current_user_can(self::CAP) || !wp_verify_nonce(isset($_POST['_wpnonce']) ? $_POST['_wpnonce'] : '', 'vanmeya')) wp_send_json_error('Not allowed.');
         if (!Vanmeya_Images::can_make_webp()) wp_send_json_error('This hosting cannot create WebP images (GD with WebP is missing).');
         $res = self::run_for(15);
-        wp_send_json_success(['counts' => (new Vanmeya_Store_Wpdb())->counts(), 'step' => $res]);
+        wp_send_json_success(['counts' => self::ui_counts(), 'step' => $res]);
     }
 
     /** Browser upload in small pieces, so the hosting's upload size limit does not matter. */
@@ -486,7 +406,7 @@ class Vanmeya_WP {
     public static function ajax_btake() {
         if (!current_user_can(self::CAP) || !wp_verify_nonce(isset($_POST['_wpnonce']) ? $_POST['_wpnonce'] : '', 'vanmeya')) wp_send_json_error('Not allowed.');
         $st = new Vanmeya_Store_Wpdb();
-        wp_send_json_success(['items' => $st->browser_take(6), 'counts' => $st->counts()]);
+        wp_send_json_success(['items' => $st->browser_take(6), 'counts' => self::ui_counts()]);
     }
 
     /** ... and receive the finished picture (or the reason it failed). */
@@ -502,8 +422,10 @@ class Vanmeya_WP {
             $why = self::images()->save_public($it, file_get_contents($_FILES['img']['tmp_name']));
             $why === '' ? $st->finish($it['id'], 'done', false, '') : $st->finish($it['id'], 'failed', true, 'browser_' . $why);
         }
-        wp_send_json_success(['counts' => $st->counts()]);
+        wp_send_json_success(['counts' => self::ui_counts()]);
     }
+
+    public static function ui_counts() { $st = new Vanmeya_Store_Wpdb(); $c = $st->counts(); $c['skipped'] = $st->skipped(); return $c; }
 
     private static function run_for($seconds) {
         @set_time_limit($seconds + 30);
