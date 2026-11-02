@@ -70,14 +70,14 @@ class Vanmeya_Seo_Admin {
         foreach ($wpdb->get_results("SELECT path, data FROM " . Vanmeya_Editor_Admin::table(), ARRAY_A) as $r) { $d = json_decode($r['data'], true); if (is_array($d)) $o[$r['path']] = $d; }
         return $o;
     }
-    private static function help($text) { echo '<div style="background:#f0f6fc;border-left:4px solid #72aee6;padding:10px 14px;max-width:860px;margin:10px 0">' . wp_kses_post($text) . '</div>'; }
+    private static function help($text) { echo '<div class="vm-help">' . wp_kses_post($text) . '</div>'; }
 
     /* ---------- screens ---------- */
     public static function page() {
         if (!current_user_can(Vanmeya_WP::CAP)) return;
         $tab = isset($_GET['tab']) ? sanitize_key($_GET['tab']) : 'audit';
         $tabs = ['audit' => 'Check my pages', 'bulk' => 'Bulk edit in Excel', 'rules' => 'Title and description rules', 'redirects' => 'Redirects', 'log' => 'Pages not found (404)', 'tracking' => 'Google Analytics and Search Console', 'robots' => 'robots.txt and sitemap'];
-        echo '<div class="wrap"><h1>SEO</h1><h2 class="nav-tab-wrapper">';
+        echo '<div class="wrap vm"><h1>SEO</h1><h2 class="nav-tab-wrapper">';
         foreach ($tabs as $k => $l) echo '<a class="nav-tab' . ($k === $tab ? ' nav-tab-active' : '') . '" href="' . self::url(['tab' => $k]) . '">' . esc_html($l) . '</a>';
         echo '</h2>';
         if (!empty($_GET['vm'])) echo '<div class="notice notice-success"><p>' . esc_html(sanitize_text_field(wp_unslash($_GET['vm']))) . '</p></div>';

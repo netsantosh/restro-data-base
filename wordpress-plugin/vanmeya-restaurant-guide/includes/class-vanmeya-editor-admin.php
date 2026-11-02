@@ -62,7 +62,7 @@ class Vanmeya_Editor_Admin {
 
     public static function page() {
         if (!current_user_can(Vanmeya_WP::CAP)) return;
-        echo '<div class="wrap"><h1>Pages &amp; content <a class="page-title-action" href="' . self::link(['new' => 1]) . '">Add new page</a></h1>';
+        echo '<div class="wrap vm"><h1>Pages &amp; content <a class="page-title-action" href="' . self::link(['new' => 1]) . '">Add new page</a></h1>';
         if (!empty($_GET['vm'])) echo '<div class="notice notice-success"><p>' . esc_html(sanitize_text_field(wp_unslash($_GET['vm']))) . '</p></div>';
         if (!is_file(Vanmeya_WP::site_dir() . '/index.html')) { echo '<p>The website is not installed yet. Install it first on the Vanmeya page (step 3).</p></div>'; return; }
         if (isset($_GET['new'])) { self::form_new(); echo '</div>'; return; }

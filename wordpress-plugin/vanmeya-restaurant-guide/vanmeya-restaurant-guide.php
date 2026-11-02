@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Vanmeya Restaurant Guide
  * Description: Downloads restaurant photos from the images database into one folder per restaurant, and serves the restaurant guide pages built by the Vanmeya site builder.
- * Version: 1.2.0
+ * Version: 1.3.0
  * Requires PHP: 7.4
  * License: Proprietary, all rights reserved
  */
@@ -14,6 +14,7 @@ require_once __DIR__ . '/includes/class-vanmeya-editor.php';
 require_once __DIR__ . '/includes/class-vanmeya-editor-admin.php';
 require_once __DIR__ . '/includes/class-vanmeya-seo-core.php';
 require_once __DIR__ . '/includes/class-vanmeya-seo-admin.php';
+require_once __DIR__ . '/includes/class-vanmeya-ui.php';
 
 register_activation_hook(__FILE__, ['Vanmeya_WP', 'activate']);
 register_deactivation_hook(__FILE__, ['Vanmeya_WP', 'deactivate']);
