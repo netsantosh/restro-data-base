@@ -406,7 +406,7 @@ class Vanmeya_WP {
     public static function ajax_btake() {
         if (!current_user_can(self::CAP) || !wp_verify_nonce(isset($_POST['_wpnonce']) ? $_POST['_wpnonce'] : '', 'vanmeya')) wp_send_json_error('Not allowed.');
         $st = new Vanmeya_Store_Wpdb();
-        wp_send_json_success(['items' => $st->browser_take(6), 'counts' => self::ui_counts()]);
+        wp_send_json_success(['items' => $st->browser_take(14), 'counts' => self::ui_counts()]);
     }
 
     /** ... and receive the finished picture (or the reason it failed). */

@@ -22,6 +22,7 @@ class Vanmeya_Editor_Admin {
 
     public static function init() {
         add_action('admin_menu', function () { add_submenu_page('vanmeya', 'Pages & content', 'Pages & content', Vanmeya_WP::CAP, 'vanmeya-pages', [__CLASS__, 'page']); }, 20);
+        add_action('wp_ajax_vanmeya_index', [__CLASS__, 'ajax_index']);
         add_action('admin_post_vanmeya_edit_save', [__CLASS__, 'save']);
         add_action('admin_post_vanmeya_edit_reset', [__CLASS__, 'reset']);
         add_action('admin_post_vanmeya_new', [__CLASS__, 'create']);
@@ -57,6 +58,63 @@ class Vanmeya_Editor_Admin {
     }
     private static function file_for($key) { return Vanmeya_WP::site_dir() . '/' . ($key === '' ? '' : $key . '/') . 'index.html'; }
 
+    /* ---------- build the page list by reading the installed website (used when the zip has no list yet) ---------- */
+    public static function index_ui() {
+        $nonce = wp_create_nonce('vanmeya');
+        echo '<div class="vm-card"><h2>Building the list of your pages</h2><p class="vm-sub">This happens once, automatically. Keep this page open for a minute. A new website zip from GitHub will bring a faster, richer list later.</p><div class="vm-bar"><i id="vm-ix" style="background:#2271b1;width:2%"></i></div><p id="vm-ixt">Starting...</p></div>';
+        echo '<script>(function(){var AJ="' . esc_url(admin_url('admin-ajax.php')) . '",NC="' . esc_js($nonce) . '";function p(ph,pos){var f=new FormData();f.append("action","vanmeya_index");f.append("_wpnonce",NC);f.append("phase",ph);f.append("pos",pos||0);return fetch(AJ,{method:"POST",body:f,credentials:"same-origin"}).then(function(r){return r.json();});}
+        function run(pos,tot){p("run",pos).then(function(j){if(!j.success){document.getElementById("vm-ixt").textContent="Stopped: "+j.data;return;}var d=j.data;document.getElementById("vm-ix").style.width=Math.max(2,Math.round(100*d.pos/d.total))+"%";document.getElementById("vm-ixt").textContent="Reading pages: "+d.pos.toLocaleString()+" of "+d.total.toLocaleString();if(d.pos>=d.total){p("finish").then(function(){location.reload();});}else run(d.pos,d.total);}).catch(function(){setTimeout(function(){run(pos,tot);},2500);});}
+        p("start").then(function(j){if(!j.success){document.getElementById("vm-ixt").textContent="Stopped: "+j.data;return;}run(0,j.data.total);});})();</script>';
+    }
+
+    public static function ajax_index() {
+        if (!current_user_can(Vanmeya_WP::CAP) || !wp_verify_nonce(isset($_POST['_wpnonce']) ? $_POST['_wpnonce'] : '', 'vanmeya')) wp_send_json_error('Not allowed.');
+        @set_time_limit(120);
+        $base = Vanmeya_WP::base_dir(); $site = Vanmeya_WP::site_dir(); $list = $base . '/scan.txt'; $out = $base . '/scan.ndjson'; $phase = isset($_POST['phase']) ? $_POST['phase'] : '';
+        if ($phase === 'start') {
+            if (!is_dir($site)) wp_send_json_error('The website is not installed.');
+            $paths = []; $root = realpath($site);
+            foreach (new RecursiveIteratorIterator(new RecursiveDirectoryIterator($root, FilesystemIterator::SKIP_DOTS)) as $f) {
+                if ($f->getFilename() !== 'index.html') continue;
+                $rel = trim(str_replace('\\', '/', substr($f->getPath(), strlen($root))), '/');
+                if (strpos('/' . $rel . '/', '/page/') !== false || strpos($rel, 'static') === 0 || strpos($rel, 'photo-audit') === 0) continue;
+                $paths[] = $rel;
+            }
+            sort($paths);
+            file_put_contents($list, implode("\n", $paths)); @unlink($out);
+            wp_send_json_success(['total' => count($paths)]);
+        }
+        if ($phase === 'run') {
+            $paths = explode("\n", (string)file_get_contents($list)); if ($paths === ['']) $paths = [];
+            $pos = (int)$_POST['pos']; $total = count($paths); $t0 = time(); $buf = '';
+            $statics = ['about', 'contact', 'privacy-policy', 'terms'];
+            while ($pos < $total && time() - $t0 < 10) {
+                $rel = $paths[$pos++];
+                $fh = @fopen($site . '/' . ($rel === '' ? '' : $rel . '/') . 'index.html', 'r'); if (!$fh) continue;
+                $html = (string)fread($fh, 30000); fclose($fh);
+                $x = Vanmeya_Editor::extract($html); $seg = $rel === '' ? [] : explode('/', $rel); $n = count($seg);
+                $pretty = function ($s) { return ucwords(str_replace('-', ' ', $s)); };
+                $kind = $rel === '' ? 'home' : (in_array($rel, $statics, true) ? 'page' : (strpos($html, 'property="og:type" content="place"') !== false ? 'restaurant' : ($n <= 3 ? 'place' : 'area')));
+                $v = [];
+                if ($kind === 'restaurant' || $kind === 'area' || $kind === 'place') {
+                    foreach (['country', 'state', 'city', 'area'] as $i => $k) if (isset($seg[$i]) && !($kind === 'restaurant' && $i > 3)) $v[$k] = $pretty($seg[$i]);
+                    $v['name'] = $x['h1'] !== '' ? $x['h1'] : ($n ? $pretty($seg[$n - 1]) : '');
+                }
+                $buf .= json_encode([$rel, $kind, $x['title'], $x['desc'], $x['h1'], $v], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) . "\n";
+            }
+            file_put_contents($out, $buf, FILE_APPEND);
+            wp_send_json_success(['pos' => $pos, 'total' => max(1, $total)]);
+        }
+        if ($phase === 'finish') {
+            $rows = [];
+            foreach (explode("\n", (string)@file_get_contents($out)) as $line) { if ($line === '') continue; $r = json_decode($line, true); if (is_array($r)) $rows[] = $r; }
+            file_put_contents($site . '/vm-pages.json', json_encode(['v' => 1, 'rows' => $rows], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
+            @unlink($base . '/scan.txt'); @unlink($out);
+            wp_send_json_success(['rows' => count($rows)]);
+        }
+        wp_send_json_error('Unknown step.');
+    }
+
     /* ---------- screens ---------- */
     private static function link($args) { return esc_url(add_query_arg(array_merge(['page' => 'vanmeya-pages'], $args), admin_url('admin.php'))); }
 
@@ -73,7 +131,7 @@ class Vanmeya_Editor_Admin {
 
     private static function listing() {
         $rows = self::rows();
-        if (!$rows || !is_file(Vanmeya_WP::site_dir() . '/vm-pages.json')) echo '<div class="notice notice-warning"><p>The list of pages is missing from the installed website. Build the website again with the latest code and install the new zip, then this list appears.</p></div>';
+        if (!is_file(Vanmeya_WP::site_dir() . '/vm-pages.json')) { self::index_ui(); return; }
         $type = isset($_GET['t']) ? sanitize_key($_GET['t']) : '';
         $c = isset($_GET['c']) ? sanitize_title(wp_unslash($_GET['c'])) : '';
         $s = isset($_GET['s']) ? sanitize_title(wp_unslash($_GET['s'])) : '';
