@@ -2,16 +2,22 @@ name: hosting-site
 
 # Builds the website as a zip for your own WordPress hosting (the "Vanmeya Restaurant Guide" plugin).
 # Photos are NOT inside the zip: the plugin downloads them onto the hosting from the images database
-# (created by the "photos" workflow). Run this by hand, then download "site-for-hosting" from the run's Artifacts.
+# (created by the "photos" workflow).
+# It runs by itself every time the "photos" workflow finishes (daily), and you can still run it by hand.
+# Download "site-for-hosting" from the run's Artifacts. The site address comes from the repository
+# variable SITE_URL (Settings > Secrets and variables > Actions > Variables); if it is not set, the staging address is used.
 on:
+  workflow_run:
+    workflows: ["photos"]
+    types: [completed]
   workflow_dispatch:
     inputs:
       site_url:
-        description: "Address of the WordPress site, for example https://staging.yourdomain.com (no slash at the end)"
-        required: true
+        description: "Leave empty to use the SITE_URL variable. Otherwise the address of the WordPress site, e.g. https://yourdomain.com (no slash at the end)"
+        required: false
       photo_base:
         description: "Where the plugin stores photos (leave as it is)"
-        required: true
+        required: false
         default: "/wp-content/uploads/vanmeya/photos"
 
 permissions:
@@ -23,6 +29,7 @@ concurrency:
 
 jobs:
   build:
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
     runs-on: ubuntu-latest
     timeout-minutes: 40
     steps:
@@ -51,14 +58,14 @@ jobs:
           GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
           DB_SHEET_ID: ${{ secrets.DB_SHEET_ID }}
           CONTENT_SHEET_ID: ${{ secrets.CONTENT_SHEET_ID }}
-          SITE_URL: ${{ inputs.site_url }}
+          SITE_URL: ${{ inputs.site_url || vars.SITE_URL || 'https://restrobase.onlinecarpenter.in' }}
           BASE_PATH: ""
           CONTACT_API: ${{ vars.CONTACT_API }}
           PHOTO_SYNC: "1"
           PHOTO_MODE: cache
           PHOTO_SELENIUM: "0"
           PYTHONFAULTHANDLER: "1"
-        run: python build.py --hosting-photos "${{ inputs.photo_base }}"
+        run: python build.py --hosting-photos "${{ inputs.photo_base || '/wp-content/uploads/vanmeya/photos' }}"
       - name: Zip the site
         run: cd claude-website/dist && zip -q -r "$GITHUB_WORKSPACE/site-for-hosting.zip" . && ls -la "$GITHUB_WORKSPACE/site-for-hosting.zip"
       - uses: actions/upload-artifact@v4
