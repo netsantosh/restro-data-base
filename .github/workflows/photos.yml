@@ -39,6 +39,11 @@ jobs:
           cache-dependency-path: claude-website/requirements-photos.txt
       - name: Install (includes the CLIP model libraries, CPU only)
         run: pip install -r claude-website/requirements-photos.txt --extra-index-url https://download.pytorch.org/whl/cpu
+      - name: Read the restaurant sheet once (later passes use this copy, which avoids Google's read limit)
+        working-directory: claude-website
+        run: |
+          python snapshot_sheet.py "gsheet:$DB_SHEET_ID" "$GITHUB_WORKSPACE/db_snapshot.xlsx"
+          echo "DB_SOURCE=$GITHUB_WORKSPACE/db_snapshot.xlsx" >> "$GITHUB_ENV"
       - name: Cache the CLIP model files
         uses: actions/cache@v4
         with:

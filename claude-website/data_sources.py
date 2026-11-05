@@ -6,10 +6,26 @@
 """
 import json
 import os
+import time
 
 import pandas as pd
 
 CONTENT_TABS = {"country": "Country", "state": "State", "city": "City"}
+
+
+def _retry(fn, what="Google Sheets"):
+    """Google allows about 60 sheet reads a minute. When it says 'quota exceeded' (429) or has a hiccup (5xx), wait and try again."""
+    waits = [30, 60, 90, 120, 120, 120]
+    for i in range(len(waits) + 1):
+        try:
+            return fn()
+        except Exception as e:  # gspread.exceptions.APIError and network errors
+            code = getattr(getattr(e, "response", None), "status_code", None)
+            retryable = code in (429, 500, 502, 503, 504) or "429" in str(e)[:40] or isinstance(e, (ConnectionError, TimeoutError))
+            if not retryable or i == len(waits):
+                raise
+            print(f"  {what}: {str(e)[:90]} ... waiting {waits[i]}s then trying again ({i + 1}/{len(waits)})", flush=True)
+            time.sleep(waits[i])
 
 
 def _client():
@@ -28,14 +44,14 @@ def _client():
 
 
 def _find_ws(sheet, title):
-    for ws in sheet.worksheets():
+    for ws in _retry(sheet.worksheets):
         if ws.title.strip().lower() == title.lower():
             return ws
     return None
 
 
 def _ws_to_df(ws):
-    values = ws.get_all_values()
+    values = _retry(ws.get_all_values)
     if not values:
         return pd.DataFrame()
     header = [h.strip() for h in values[0]]
@@ -63,10 +79,10 @@ def read_listings(source):
     """The Listings tab plus every other tab that has listing columns (one tab per country is fine)."""
     frames = []
     if source.startswith("gsheet:"):
-        sheet = _client().open_by_key(source.split(":", 1)[1])
+        sheet = _retry(lambda: _client().open_by_key(source.split(":", 1)[1]))
         if _find_ws(sheet, LISTING_TAB) is None:
             raise SystemExit("Tab 'Listings' not found in the restaurant database sheet.")
-        for ws in sheet.worksheets():
+        for ws in _retry(sheet.worksheets):
             if ws.title.strip().lower() in SKIP_TABS:
                 continue
             df = _ws_to_df(ws)
@@ -93,7 +109,7 @@ def read_content(source):
     if not source or source == "none":
         return out
     if source.startswith("gsheet:"):
-        sheet = _client().open_by_key(source.split(":", 1)[1])
+        sheet = _retry(lambda: _client().open_by_key(source.split(":", 1)[1]))
         for key, title in CONTENT_TABS.items():
             ws = _find_ws(sheet, title)
             if ws is not None:
