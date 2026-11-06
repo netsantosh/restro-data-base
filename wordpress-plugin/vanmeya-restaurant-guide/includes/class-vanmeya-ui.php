@@ -37,7 +37,9 @@ class Vanmeya_UI {
         $n = (string)$note; $b = strpos($n, 'browser_') === 0 ? substr($n, 8) : $n;
         if (strpos($b, 'too_small') !== false) return ['Too small to look good (logos, icons, tiny thumbnails)', 'Skipped on purpose. Nothing to do.', 'mute'];
         if (strpos($b, 'not_an_image') !== false) return ['Google sent something that is not a picture', 'Skipped on purpose.', 'mute'];
-        if ($b === 'blocked') return ['Your browser was not allowed to read the picture from Google', 'Press "Retry problem photos". The hosting server will try these.', 'warn'];
+        if ($b === 'blocked') return ['Google did not hand over the picture (busy or blocked)', 'Press "Retry problem photos". It now goes slower and tries again.', 'warn'];
+        if ($b === 'nocors') return ['Google shows the picture but does not let other websites copy it', 'Cannot be fixed from the browser. Press "Retry problem photos" to let the hosting server try.', 'warn'];
+        if ($b === 'gone') return ['Google no longer has this picture', 'Run the GitHub photos workflow again and upload the newer images file.', 'bad'];
         if (strpos($b, 'http_404') !== false || strpos($b, 'http_410') !== false) return ['The photo link has expired or the photo was removed', 'Run the GitHub photos workflow again and upload the newer images file.', 'bad'];
         if (strpos($b, 'http_403') !== false) return ['Google refused the download', 'Try again later, or upload a newer images file.', 'warn'];
         if (strpos($b, 'net:') === 0 || $b === 'no_connection') return ['The hosting could not connect to Google', 'Use "Download photos": your browser takes over automatically.', 'warn'];
@@ -118,6 +120,9 @@ class Vanmeya_UI {
         echo '<p class="vm-lead">Two switches.</p><form method="post" action="' . esc_url(admin_url('admin-post.php')) . '">' . self::hidden('vanmeya_settings', $nonce);
         echo '<div class="vm-card"><h2>Visibility to Google</h2><label><input type="checkbox" name="noindex" value="1" ' . checked(Vanmeya_WP::opt('noindex', 1), 1, false) . '> <strong>Hide this site from Google</strong></label><p class="description">Keep this ticked on a test (staging) site so Google does not list it. Untick it on the day you go live.</p></div>';
         echo '<div class="vm-card"><h2>Background photo downloads</h2><label><input type="checkbox" name="background" value="1" ' . checked(Vanmeya_WP::opt('background', 0), 1, false) . '> Keep downloading photos when this page is closed</label><p class="description">Needs visitors on the site or a server cron job. Most people leave this off.</p></div>';
+        echo '<div class="vm-card"><h2>Smallest photo to keep</h2><p>Photos with a short side under <select name="min_side">';
+        foreach ([100, 150, 200, 300] as $v) echo '<option value="' . $v . '"' . selected(Vanmeya_WP::min_side(), $v, false) . '>' . $v . ' pixels</option>';
+        echo '</select> are skipped.</p><p class="description">200 keeps pages looking sharp. Lower it (150 or 100) if you would rather show every photo, even small ones. After changing it, press <strong>Retry problem photos</strong> on the Photos screen.</p></div>';
         echo '<p><button class="button button-primary vm-big">Save settings</button></p></form>';
     }
 
@@ -163,17 +168,25 @@ function serverLoop(){if(!st.run)return;post("vanmeya_step").then(function(j){
  }).catch(function(){say("Connection hiccup, trying again...");setTimeout(serverLoop,3000);});}
 function big(u){if(!/googleusercontent\.com/.test(u))return u;var m=u.match(/^([^=\s]+)=[A-Za-z0-9\-_]+$/);if(m)return m[1]+"=s1200";return u.indexOf("=")<0?u+"=s1200":u;}
 function grab(u){return fetch(u,{mode:"cors",referrerPolicy:"no-referrer"}).then(function(r){if(!r.ok)throw new Error("http_"+r.status);return r.blob();}).then(function(b){return createImageBitmap(b);});}
-function webp(u){return grab(u).then(function(bm){if((bm.width<200||bm.height<200)&&big(u)!==u)return grab(big(u));return bm;}).then(function(bm){var w=bm.width,h=bm.height;if(w<200||h<200)throw new Error("too_small");var s=w>800?800/w:1,cv=document.createElement("canvas");cv.width=Math.round(w*s);cv.height=Math.round(h*s);cv.getContext("2d").drawImage(bm,0,0,cv.width,cv.height);return new Promise(function(ok,no){cv.toBlob(function(x){x?ok(x):no(new Error("encode"));},"image/webp",0.78);});});}
-function one(it){return webp(it.url).then(function(b){var f=new FormData();f.append("id",it.id);f.append("img",b,"x.webp");return post("vanmeya_bput",f);}).catch(function(err){var f=new FormData();f.append("id",it.id);var m=(err&&err.message)||"error";f.append("fail",m==="Failed to fetch"?"blocked":m);return post("vanmeya_bput",f);});}
-function browserPhase(){if(!st.run)return;post("vanmeya_btake").then(function(j){
+var MIN=__MIN__;
+function wait(ms){return new Promise(function(r){setTimeout(r,ms);});}
+function grabR(u,n){return grab(u).catch(function(e){if(n>=3||!/Failed to fetch|http_429|http_5/.test(e.message))throw e;return wait(1500*Math.pow(2,n)).then(function(){return grabR(u,n+1);});});}
+function probe(u){return new Promise(function(ok){var i=new Image();i.referrerPolicy="no-referrer";i.onload=function(){ok("nocors");};i.onerror=function(){ok("gone");};i.src=u;});}
+function webp(u){return grabR(u,0).then(function(bm){if((bm.width<MIN||bm.height<MIN)&&big(u)!==u)return grabR(big(u),0);return bm;}).then(function(bm){var w=bm.width,h=bm.height;if(w<MIN||h<MIN)throw new Error("too_small");var s=w>800?800/w:1,cv=document.createElement("canvas");cv.width=Math.round(w*s);cv.height=Math.round(h*s);cv.getContext("2d").drawImage(bm,0,0,cv.width,cv.height);return new Promise(function(ok,no){cv.toBlob(function(x){x?ok(x):no(new Error("encode"));},"image/webp",0.78);});});}
+function one(it){return webp(it.url).then(function(b){var f=new FormData();f.append("id",it.id);f.append("img",b,"x.webp");return post("vanmeya_bput",f);}).catch(function(err){var f=new FormData();f.append("id",it.id);var m=(err&&err.message)||"error";if(m==="Failed to fetch"){return probe(it.url).then(function(k){f.append("fail",k);return post("vanmeya_bput",f);});}f.append("fail",m);return post("vanmeya_bput",f);});}
+var par=8;
+function browserPhase(){if(!st.run)return;var f=new FormData();f.append("n",par);post("vanmeya_btake",f).then(function(j){
   if(!j.success){stop("Stopped: "+(j.data||"error"),"bad");return;}
   paint(j.data.counts);if(!j.data.items.length){finish(j.data.counts);return;}
-  Promise.all(j.data.items.map(one)).then(function(r){var l=r[r.length-1],c=l&&l.data&&l.data.counts;if(c){paint(c);say("Downloading with your browser... "+num(c.done)+" saved, "+num(c.pending)+" waiting. Keep this page open.");}browserPhase();});
+  Promise.all(j.data.items.map(one)).then(function(r){var l=r[r.length-1],c=l&&l.data&&l.data.counts;var bad=0;r.forEach(function(x){if(!x||!x.success)bad++;});
+   if(c){paint(c);say("Downloading with your browser... "+num(c.done)+" saved, "+num(c.pending)+" waiting. Keep this page open.");}
+   var fl=c?c.failed:0;if(st.lastFail!==undefined&&fl-st.lastFail>=Math.ceil(r.length/3)){par=Math.max(2,Math.floor(par/2));st.slow=true;}else if(par<12)par++;st.lastFail=fl;
+   if(st.slow){st.slow=false;say("Google is slowing us down, pausing a few seconds...");wait(6000).then(browserPhase);}else browserPhase();});
  }).catch(function(){say("Connection hiccup, trying again...");setTimeout(browserPhase,3000);});}
 go.onclick=function(){st.run=true;st.stuck=0;go.disabled=true;go.textContent="Working...";pause.disabled=false;say("Starting...");serverLoop();};
 pause.onclick=function(){st.run=false;idle();say("Paused. Press Download photos to continue.");};
 })();
 JS;
-        return str_replace(['__AJ__', '__NC__'], [esc_url($ajax), esc_js($nonce)], $js);
+        return str_replace(['__AJ__', '__NC__', '__MIN__'], [esc_url($ajax), esc_js($nonce), (int)Vanmeya_WP::min_side()], $js);
     }
 }
