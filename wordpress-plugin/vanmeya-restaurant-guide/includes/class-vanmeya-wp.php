@@ -44,7 +44,7 @@ class Vanmeya_Store_Wpdb {
             if (strpos($note, 'http_404') !== false || strpos($note, 'http_410') !== false) continue;
             if (strpos($note, 'too_small') !== false || strpos($note, 'not_an_image') !== false) {
                 $cur = $r['alt'] !== '' ? $r['alt'] : $r['url']; $big = Vanmeya_Images::enlarge($cur);
-                if ($big === $cur) continue;                                  // nothing bigger exists: truly too small
+                if ($big === $cur && Vanmeya_WP::min_side() >= 200) continue;   // nothing bigger exists: truly too small
                 $wpdb->update($this->t, ['alt' => $big, 'status' => 'pending', 'tries' => 0, 'note' => ''], ['id' => (int)$r['id']]); $n++;
             } else { $plain[] = (int)$r['id']; }
         }
@@ -91,7 +91,8 @@ class Vanmeya_WP {
     public static function photo_base_url_path() { $u = wp_upload_dir(); return rtrim((string)wp_parse_url($u['baseurl'], PHP_URL_PATH), '/') . '/vanmeya/photos'; }
     public static function opt($k, $d = '') { $o = get_option('vanmeya_opts', []); return isset($o[$k]) ? $o[$k] : $d; }
     public static function set_opt($k, $v) { $o = get_option('vanmeya_opts', []); $o[$k] = $v; update_option('vanmeya_opts', $o, false); }
-    public static function images() { return new Vanmeya_Images(self::photo_dir(), new Vanmeya_Store_Wpdb()); }
+    public static function min_side() { return max(80, min(600, (int)self::opt('min_side', 200))); }
+    public static function images() { $im = new Vanmeya_Images(self::photo_dir(), new Vanmeya_Store_Wpdb()); $im->min_side = self::min_side(); return $im; }
 
     /* ---------- activate ---------- */
     public static function activate() {
@@ -317,6 +318,7 @@ class Vanmeya_WP {
         self::guard();
         self::set_opt('noindex', empty($_POST['noindex']) ? 0 : 1);
         self::set_opt('background', empty($_POST['background']) ? 0 : 1);
+        $ms = isset($_POST['min_side']) ? (int)$_POST['min_side'] : 200; self::set_opt('min_side', max(80, min(600, $ms)));
         if (self::opt('background', 0)) { if (!wp_next_scheduled('vanmeya_cron')) wp_schedule_event(time() + 60, 'vanmeya_minute', 'vanmeya_cron'); }
         else wp_clear_scheduled_hook('vanmeya_cron');
         self::back('Settings saved.');
@@ -406,7 +408,7 @@ class Vanmeya_WP {
     public static function ajax_btake() {
         if (!current_user_can(self::CAP) || !wp_verify_nonce(isset($_POST['_wpnonce']) ? $_POST['_wpnonce'] : '', 'vanmeya')) wp_send_json_error('Not allowed.');
         $st = new Vanmeya_Store_Wpdb();
-        wp_send_json_success(['items' => $st->browser_take(14), 'counts' => self::ui_counts()]);
+        wp_send_json_success(['items' => $st->browser_take(max(2, min(14, isset($_POST['n']) ? (int)$_POST['n'] : 8))), 'counts' => self::ui_counts()]);
     }
 
     /** ... and receive the finished picture (or the reason it failed). */
