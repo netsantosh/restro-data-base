@@ -58,7 +58,7 @@ jobs:
           GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
           DB_SHEET_ID: ${{ secrets.DB_SHEET_ID }}
           CONTENT_SHEET_ID: ${{ secrets.CONTENT_SHEET_ID }}
-          SITE_URL: ${{ inputs.site_url || vars.SITE_URL || 'https://restrobase.onlinecarpenter.in' }}
+          SITE_URL: ${{ inputs.site_url || vars.SITE_URL || 'https://restroze.com' }}
           BASE_PATH: ""
           CONTACT_API: ${{ vars.CONTACT_API }}
           PHOTO_SYNC: "1"

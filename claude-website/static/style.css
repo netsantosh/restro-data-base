@@ -1,4 +1,4 @@
-/* Vanmeya: black and white, rounded, fluid. All sizes are rem or fluid so the layout holds at any browser zoom (25% to 500%). */
+/* Restroze: black and white, rounded, fluid. All sizes are rem or fluid so the layout holds at any browser zoom (25% to 500%). */
 @font-face{font-family:"Instrument Sans";src:url(fonts/instrument-sans-latin-wght-normal.woff2) format("woff2");font-weight:400 700;font-style:normal;font-display:swap}
 @font-face{font-family:"Bricolage Grotesque";src:url(fonts/bricolage-grotesque-latin-wght-normal.woff2) format("woff2");font-weight:200 800;font-style:normal;font-display:swap}
 :root{
@@ -33,7 +33,7 @@ p,li,dd,blockquote{overflow-wrap:anywhere}
 .top{position:sticky;top:0;z-index:30;background:rgba(255,255,255,.88);-webkit-backdrop-filter:saturate(1.6) blur(14px);backdrop-filter:saturate(1.6) blur(14px);border-bottom:1px solid var(--line)}
 .bar{display:flex;align-items:center;flex-wrap:wrap;gap:.5rem 1.25rem;padding-block:.75rem}
 .brand{display:inline-flex;align-items:center;gap:.6rem;font:700 1.3rem/1 var(--display);letter-spacing:-.03em;text-decoration:none;color:var(--ink);margin-right:auto}
-.brand .dot{width:.7rem;height:.7rem;border-radius:50%;background:var(--ink);box-shadow:.35rem .2rem 0 -.05rem var(--star)}
+.brand .logomark{width:1.9rem;height:1.9rem;flex:none}
 .nav{display:flex;align-items:center;flex-wrap:wrap;gap:.25rem}
 .nav>a,.menu summary{display:inline-flex;align-items:center;min-height:2.5rem;padding:0 .9rem;border-radius:var(--pill);color:var(--text);text-decoration:none;cursor:pointer;list-style:none;font:600 .95rem/1 var(--sans)}
 .nav>a:hover,.menu summary:hover,.menu[open] summary{background:var(--mist);color:var(--ink)}
