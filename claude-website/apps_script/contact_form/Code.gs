@@ -22,8 +22,8 @@ function doPost(e) {
     var body = 'From: ' + name + ' <' + email + '>\n' +
                'Topic: ' + (topic || '-') + '\n' +
                'Page: ' + (page || '-') + '\n\n' + message + '\n';
-    MailApp.sendEmail({ to: to, replyTo: email, subject: '[Vanmeya] ' + (topic || 'Message') + ' from ' + name,
-                        body: body, name: 'Vanmeya contact form' });
+    MailApp.sendEmail({ to: to, replyTo: email, subject: '[Restroze] ' + (topic || 'Message') + ' from ' + name,
+                        body: body, name: 'Restroze contact form' });
     return reply_('ok');
   } catch (err) {
     return reply_('error');
