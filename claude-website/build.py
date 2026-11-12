@@ -764,7 +764,7 @@ SITEMAP_XSL = """<?xml version="1.0" encoding="UTF-8"?>
   xmlns:s="http://www.sitemaps.org/schemas/sitemap/0.9" xmlns:image="http://www.google.com/schemas/sitemap-image/1.1">
 <xsl:output method="html" encoding="UTF-8" indent="yes"/>
 <xsl:template match="/">
-<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex">
+<html><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/><meta name="robots" content="noindex"/>
 <title>Sitemap</title>
 <style>body{font:15px/1.5 system-ui,sans-serif;color:#16181d;margin:0;background:#fff}main{max-width:62rem;margin:0 auto;padding:2rem 1rem}
 h1{font-size:1.4rem;margin:0 0 .3rem}p{color:#5d6471;margin:0 0 1.2rem}table{width:100%;border-collapse:collapse}
