@@ -767,9 +767,21 @@ def write_sitemap_and_robots(site):
         imgs = "".join(f"<image:image><image:loc>{xml_escape(i)}</image:loc></image:image>"
                        for i in site.page_images.get(path, []))
         urls.append(f"  <url><loc>{xml_escape(loc)}</loc>" + (f"<lastmod>{lastmod}</lastmod>" if lastmod else "") + imgs + "</url>")
+    # Google reads at most 50,000 URLs / 50 MB per sitemap file, so the list is split into chunks of 5,000
+    # and sitemap.xml is an index that points to them.
+    hdr = '<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9" xmlns:image="http://www.google.com/schemas/sitemap-image/1.1">\n'
+    for old_f in site.out.glob("sitemap*.xml"):
+        old_f.unlink()
+    size = 5000
+    chunks = [urls[i:i + size] for i in range(0, len(urls), size)] or [[]]
+    entries = []
+    for n, chunk in enumerate(chunks, 1):
+        name = f"sitemap-{n}.xml"
+        (site.out / name).write_text(hdr + "\n".join(chunk) + "\n</urlset>\n", encoding="utf-8")
+        entries.append(f"  <sitemap><loc>{xml_escape(base + site.cfg['base_path'] + '/' + name)}</loc></sitemap>")
     (site.out / "sitemap.xml").write_text(
-        '<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9" xmlns:image="http://www.google.com/schemas/sitemap-image/1.1">\n'
-        + "\n".join(urls) + "\n</urlset>\n", encoding="utf-8")
+        '<?xml version="1.0" encoding="UTF-8"?>\n<sitemapindex xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n'
+        + "\n".join(entries) + "\n</sitemapindex>\n", encoding="utf-8")
     (site.out / "robots.txt").write_text(f"User-agent: *\nAllow: /\nDisallow: {site.cfg['base_path']}/photo-audit/\n\nSitemap: {base}{site.cfg['base_path']}/sitemap.xml\n",
                                          encoding="utf-8")
     return len(urls)

@@ -159,7 +159,7 @@ class Vanmeya_WP {
             else echo "User-agent: *\nAllow: /\n\nSitemap: " . home_url('/sitemap.xml') . "\n";
             exit;
         }
-        if ($p === '/sitemap.xml' && is_file(self::site_dir() . '/sitemap.xml')) {
+        if (preg_match('#^/sitemap(-\d+)?\.xml$#', $p, $sm) && is_file(self::site_dir() . $p)) {
             global $wpdb; $drop = []; $add = [];
             foreach ($wpdb->get_results("SELECT path, data, custom FROM " . Vanmeya_Editor_Admin::table(), ARRAY_A) as $r) {
                 $d = json_decode($r['data'], true); if (!is_array($d)) continue;
@@ -168,7 +168,9 @@ class Vanmeya_WP {
             }
             header('Content-Type: application/xml; charset=utf-8');
             if (self::opt('noindex', 1)) header('X-Robots-Tag: noindex');
-            echo Vanmeya_Seo_Core::filter_sitemap((string)file_get_contents(self::site_dir() . '/sitemap.xml'), $drop, $add); exit;
+            $xml = (string)file_get_contents(self::site_dir() . $p);
+            if (strpos($xml, '<sitemapindex') !== false) { echo $xml; exit; }   // the index lists the chunk files, nothing to filter
+            echo Vanmeya_Seo_Core::filter_sitemap($xml, $drop, empty($sm[1]) || $sm[1] === '-1' ? $add : []); exit;
         }
         $root = realpath(self::site_dir());
         $rel = ltrim($p, '/');
