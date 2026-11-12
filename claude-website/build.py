@@ -267,6 +267,7 @@ class Site:
     def __init__(self, cfg, out):
         self.cfg, self.out = cfg, out
         self.pages = []              # (path, lastmod, indexable)
+        self.kinds = {}              # path -> pages / places / restaurants (for the sitemap files)
         self.manifest = []           # rows for the WordPress page editor
         self.page_images = {}        # path -> absolute photo URLs (image sitemap)
         self.env = Environment(loader=FileSystemLoader(ROOT / "templates"),
@@ -313,6 +314,7 @@ class Site:
                 v["name"] = node.name
             h1 = str(ctx.get("h1") or (r["name"] if r else ""))
             self.manifest.append([p, kind, str(ctx.get("title", "")), str(ctx.get("description", "")), h1, v])
+        self.kinds[p] = {"restaurant.html": "restaurants", "place.html": "places", "area.html": "places"}.get(template, "pages")
         self.pages.append((path.strip("/"), lastmod, indexable and sitemap))
 
 
@@ -757,34 +759,78 @@ def write_editor_files(site):
     (site.out / "_vm_shell.html").write_text(html, encoding="utf-8")
 
 
+SITEMAP_XSL = """<?xml version="1.0" encoding="UTF-8"?>
+<xsl:stylesheet version="1.0" xmlns:xsl="http://www.w3.org/1999/XSL/Transform"
+  xmlns:s="http://www.sitemaps.org/schemas/sitemap/0.9" xmlns:image="http://www.google.com/schemas/sitemap-image/1.1">
+<xsl:output method="html" encoding="UTF-8" indent="yes"/>
+<xsl:template match="/">
+<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex">
+<title>Sitemap</title>
+<style>body{font:15px/1.5 system-ui,sans-serif;color:#16181d;margin:0;background:#fff}main{max-width:62rem;margin:0 auto;padding:2rem 1rem}
+h1{font-size:1.4rem;margin:0 0 .3rem}p{color:#5d6471;margin:0 0 1.2rem}table{width:100%;border-collapse:collapse}
+th{text-align:left;border-bottom:2px solid #000;padding:.5rem .6rem;font-size:.85rem}td{padding:.45rem .6rem;border-bottom:1px solid #e4e6ea;word-break:break-all}
+tr:nth-child(even) td{background:#f4f5f7}a{color:#000}td.n{text-align:right;white-space:nowrap}</style></head>
+<body><main>
+<xsl:choose>
+<xsl:when test="s:sitemapindex">
+<h1>Sitemap index</h1><p>This index lists <xsl:value-of select="count(s:sitemapindex/s:sitemap)"/> sitemap files, grouped by country and page type.</p>
+<table><tr><th>Sitemap</th><th>Last modified</th></tr>
+<xsl:for-each select="s:sitemapindex/s:sitemap"><tr><td><a href="{s:loc}"><xsl:value-of select="s:loc"/></a></td><td><xsl:value-of select="s:lastmod"/></td></tr></xsl:for-each>
+</table></xsl:when>
+<xsl:otherwise>
+<h1>Sitemap file</h1><p>This file lists <xsl:value-of select="count(s:urlset/s:url)"/> pages.</p>
+<table><tr><th>Page</th><th>Last modified</th><th>Photos</th></tr>
+<xsl:for-each select="s:urlset/s:url"><tr><td><a href="{s:loc}"><xsl:value-of select="s:loc"/></a></td><td><xsl:value-of select="s:lastmod"/></td><td class="n"><xsl:value-of select="count(image:image)"/></td></tr></xsl:for-each>
+</table></xsl:otherwise>
+</xsl:choose>
+</main></body></html>
+</xsl:template></xsl:stylesheet>
+"""
+
+
 def write_sitemap_and_robots(site):
+    """sitemap.xml is an index. Pages are grouped (general pages, then per country: places and restaurants)
+    in files of at most 5,000 URLs, because Google reads at most 50,000 URLs / 50 MB per file."""
     base = site.cfg["base_url"]
-    urls = []
+    bp = site.cfg["base_path"]
+    groups = {}
     for path, lastmod, indexable in sorted(site.pages):
         if not indexable:
             continue
         loc = base + site.u(path)
         imgs = "".join(f"<image:image><image:loc>{xml_escape(i)}</image:loc></image:image>"
                        for i in site.page_images.get(path, []))
-        urls.append(f"  <url><loc>{xml_escape(loc)}</loc>" + (f"<lastmod>{lastmod}</lastmod>" if lastmod else "") + imgs + "</url>")
-    # Google reads at most 50,000 URLs / 50 MB per sitemap file, so the list is split into chunks of 5,000
-    # and sitemap.xml is an index that points to them.
-    hdr = '<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9" xmlns:image="http://www.google.com/schemas/sitemap-image/1.1">\n'
+        entry = f"  <url><loc>{xml_escape(loc)}</loc>" + (f"<lastmod>{lastmod}</lastmod>" if lastmod else "") + imgs + "</url>"
+        kind = site.kinds.get(path, "pages")
+        if "/" not in path:                      # home, about, contact, a country page, ...
+            key = ("pages",) if kind == "pages" else (path, "places")
+        else:
+            key = (path.split("/")[0], kind)
+        groups.setdefault(key, []).append((entry, lastmod))
     for old_f in site.out.glob("sitemap*.xml"):
         old_f.unlink()
-    size = 5000
-    chunks = [urls[i:i + size] for i in range(0, len(urls), size)] or [[]]
-    entries = []
-    for n, chunk in enumerate(chunks, 1):
-        name = f"sitemap-{n}.xml"
-        (site.out / name).write_text(hdr + "\n".join(chunk) + "\n</urlset>\n", encoding="utf-8")
-        entries.append(f"  <sitemap><loc>{xml_escape(base + site.cfg['base_path'] + '/' + name)}</loc></sitemap>")
+    xsl = '<?xml-stylesheet type="text/xsl" href="' + bp + '/sitemap.xsl"?>\n'
+    hdr = ('<?xml version="1.0" encoding="UTF-8"?>\n' + xsl +
+           '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9" xmlns:image="http://www.google.com/schemas/sitemap-image/1.1">\n')
+    order = sorted(groups, key=lambda k: (k != ("pages",), k))
+    entries, total, size = [], 0, 5000
+    for key in order:
+        items = groups[key]
+        stem = "sitemap-pages" if key == ("pages",) else f"sitemap-{key[0]}-{key[1]}"
+        for n in range(0, len(items), size):
+            part = items[n:n + size]
+            name = stem + (f"-{n // size + 1}" if len(items) > size else "") + ".xml"
+            (site.out / name).write_text(hdr + "\n".join(e for e, _ in part) + "\n</urlset>\n", encoding="utf-8")
+            last = max((l for _, l in part if l), default="")
+            entries.append(f"  <sitemap><loc>{xml_escape(base + bp + '/' + name)}</loc>" + (f"<lastmod>{last}</lastmod>" if last else "") + "</sitemap>")
+            total += len(part)
     (site.out / "sitemap.xml").write_text(
-        '<?xml version="1.0" encoding="UTF-8"?>\n<sitemapindex xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n'
-        + "\n".join(entries) + "\n</sitemapindex>\n", encoding="utf-8")
-    (site.out / "robots.txt").write_text(f"User-agent: *\nAllow: /\nDisallow: {site.cfg['base_path']}/photo-audit/\n\nSitemap: {base}{site.cfg['base_path']}/sitemap.xml\n",
+        '<?xml version="1.0" encoding="UTF-8"?>\n' + xsl +
+        '<sitemapindex xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n' + "\n".join(entries) + "\n</sitemapindex>\n", encoding="utf-8")
+    (site.out / "sitemap.xsl").write_text(SITEMAP_XSL, encoding="utf-8")
+    (site.out / "robots.txt").write_text(f"User-agent: *\nAllow: /\nDisallow: {bp}/photo-audit/\n\nSitemap: {base}{bp}/sitemap.xml\n",
                                          encoding="utf-8")
-    return len(urls)
+    return total
 
 
 def write_search_index(site, all_rest):

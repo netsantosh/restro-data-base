@@ -123,7 +123,7 @@ class Vanmeya_WP {
 
     /* ---------- serving the built site ---------- */
     private static $mime = ['html' => 'text/html; charset=utf-8', 'css' => 'text/css; charset=utf-8', 'js' => 'application/javascript; charset=utf-8',
-        'json' => 'application/json; charset=utf-8', 'xml' => 'application/xml; charset=utf-8', 'txt' => 'text/plain; charset=utf-8',
+        'json' => 'application/json; charset=utf-8', 'xml' => 'application/xml; charset=utf-8', 'xsl' => 'text/xsl; charset=utf-8', 'txt' => 'text/plain; charset=utf-8',
         'svg' => 'image/svg+xml', 'png' => 'image/png', 'jpg' => 'image/jpeg', 'jpeg' => 'image/jpeg', 'webp' => 'image/webp', 'ico' => 'image/x-icon',
         'woff2' => 'font/woff2', 'woff' => 'font/woff'];
 
@@ -159,7 +159,7 @@ class Vanmeya_WP {
             else echo "User-agent: *\nAllow: /\n\nSitemap: " . home_url('/sitemap.xml') . "\n";
             exit;
         }
-        if (preg_match('#^/sitemap(-\d+)?\.xml$#', $p, $sm) && is_file(self::site_dir() . $p)) {
+        if (preg_match('#^/sitemap(-[a-z0-9-]+)?\.xml$#', $p, $sm) && is_file(self::site_dir() . $p)) {
             global $wpdb; $drop = []; $add = [];
             foreach ($wpdb->get_results("SELECT path, data, custom FROM " . Vanmeya_Editor_Admin::table(), ARRAY_A) as $r) {
                 $d = json_decode($r['data'], true); if (!is_array($d)) continue;
@@ -170,7 +170,7 @@ class Vanmeya_WP {
             if (self::opt('noindex', 1)) header('X-Robots-Tag: noindex');
             $xml = (string)file_get_contents(self::site_dir() . $p);
             if (strpos($xml, '<sitemapindex') !== false) { echo $xml; exit; }   // the index lists the chunk files, nothing to filter
-            echo Vanmeya_Seo_Core::filter_sitemap($xml, $drop, empty($sm[1]) || $sm[1] === '-1' ? $add : []); exit;
+            echo Vanmeya_Seo_Core::filter_sitemap($xml, $drop, (empty($sm[1]) || $sm[1] === '-pages' || $sm[1] === '-1') ? $add : []); exit;
         }
         $root = realpath(self::site_dir());
         $rel = ltrim($p, '/');
