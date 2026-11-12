@@ -2,15 +2,9 @@ name: claude-website
 
 # Builds the restaurant site from the two Google Sheets and deploys it to GitHub Pages.
 #  - "Publish site" in the Content CMS sheet triggers this (workflow_dispatch)
-#  - runs daily so scraper updates go live without a click
-#  - runs when the site code in claude-website/ changes
+#  - OLD GitHub Pages site: now manual only (restroze.com is built by hosting-site.yml)
 on:
   workflow_dispatch:
-  schedule:
-    - cron: "30 0 * * *"      # 06:00 IST every day
-  push:
-    branches: [main]
-    paths: ["claude-website/**", ".github/workflows/claude-website.yml"]
 
 permissions:
   contents: read

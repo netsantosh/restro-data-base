@@ -31,7 +31,7 @@ var CONFIG_DEFAULTS = [
   ['SECONDS_BETWEEN_CALLS', '6', 'Pause between Gemini calls to stay inside free-tier rate limits'],
   ['SITE_NAME', 'Restro Guide', 'Used inside meta titles'],
   ['GITHUB_REPO', 'netsantosh/restro-data-base', 'owner/repo that holds the site code'],
-  ['GITHUB_WORKFLOW', 'claude-website.yml', 'Workflow file name that builds and deploys the site'],
+  ['GITHUB_WORKFLOW', 'hosting-site.yml', 'Workflow file name that builds and deploys the site'],
   ['GITHUB_REF', 'main', 'Branch the workflow runs on']
 ];
 
