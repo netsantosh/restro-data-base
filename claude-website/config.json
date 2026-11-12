@@ -17,6 +17,6 @@
   "min_photos": 3,
   "selenium_minutes": 60,
   "selenium_workers": 3,
-  "contact_api": "",
+  "contact_api": "https://script.google.com/macros/s/AKfycbyr1E6S_AWVL_jHI-GUkz1oDBCbZPT0aggD8Py02RoFmtBV89qGUtgcFm_09HpshmiR/exec",
   "custom_domain": ""
 }
