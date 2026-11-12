@@ -44,6 +44,3 @@ jobs:
         if: always()
         uses: actions/cache/save@v4
         with: { path: claude-website/review_cache, key: "review-cache-${{ github.run_id }}-1" }
-      - name: Publish site
-        env: { GH_TOKEN: "${{ github.token }}" }
-        run: gh workflow run claude-website.yml --repo ${{ github.repository }} --ref ${{ github.ref_name }}
