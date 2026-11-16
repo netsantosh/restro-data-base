@@ -227,6 +227,27 @@ def compute_stats(root, walk, all_rest):
 # --------------------------------------------------------------------------
 # content sheet
 # --------------------------------------------------------------------------
+def load_repo_content(content, folder="content_repo"):
+    """Pages written in the repo (content_repo/*.json, keyed by page path). Sheet rows that are Approved win;
+    these fill every page that has no approved sheet row."""
+    d = Path(__file__).resolve().parent / folder
+    n = 0
+    for f in sorted(d.glob("*.json")) if d.is_dir() else []:
+        for path, rec in json.loads(f.read_text(encoding="utf-8")).items():
+            path = path.strip("/")
+            if not path or path in content:
+                continue
+            sections = [{"h2": x["h2"].strip(), "body": x["body"].strip()} for x in rec.get("sections", []) if x.get("h2") and x.get("body")]
+            faqs = [{"q": x["q"].strip(), "a": x["a"].strip()} for x in rec.get("faqs", []) if x.get("q") and x.get("a")]
+            intro = (rec.get("intro") or "").strip()
+            content[path] = {"level": "repo", "h1": (rec.get("h1") or "").strip(), "meta_title": (rec.get("meta_title") or "").strip(),
+                             "meta_description": (rec.get("meta_description") or "").strip(), "intro": intro,
+                             "short_intro": (rec.get("short_intro") or "").strip(), "sections": sections, "faqs": faqs,
+                             "words": sum(len(x.split()) for x in [intro] + [y["body"] for y in sections])}
+            n += 1
+    return n
+
+
 def load_content(tables, include_review, report):
     content = {}
     ok_status = {"approved"} | ({"review"} if include_review else set())
@@ -930,6 +951,7 @@ def main():
     root, walk = build_tree(restaurants, report)
     compute_stats(root, walk, restaurants)
     content = load_content(data_sources.read_content(args.content), args.include_review, report)
+    print(f"  pages written in the repo (content_repo): {load_repo_content(content)}")
     known = {n.path for n in walk(root) if n.kind in ("country", "state", "city")}
     report["unmatched_content"] = sorted(set(content) - known)
 
