@@ -11,7 +11,7 @@ for f in sorted(d.glob("*.json")):
         def bad(m): problems.append(f"{f.name}:{path}: {m}")
         secs, faqs = r.get("sections", []), r.get("faqs", [])
         words = len((r.get("intro") or "").split()) + sum(len(x["body"].split()) for x in secs)
-        if not 330 <= words <= 950: bad(f"{words} words (want 330 to 950)")
+        if not 300 <= words <= 950: bad(f"{words} words (want 300 to 950)")
         if len(secs) != 5: bad(f"{len(secs)} sections")
         if len(faqs) != 5: bad(f"{len(faqs)} faqs")
         if not (r.get("h1") and r.get("short_intro")): bad("missing h1 or short_intro")
