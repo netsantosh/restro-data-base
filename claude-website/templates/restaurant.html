@@ -17,7 +17,7 @@
     </p>
   </header>
 
-  {% set shown = r.photos[:9] %}
+  {% set shown = r.photos[:9] %}{% set more = r.photos[9:20] %}
   <section class="photos" aria-labelledby="photos-h">
     <h2 id="photos-h" class="vh">Photos of {{ r.name }}</h2>
     <div class="gallery n{{ [shown|length, 5]|min }}" data-gallery{% if not shown %} data-recover data-place="{{ r.place_id }}" data-i="0" data-alt="{{ r.name }}, {{ r.area }}, {{ r.city }}"{% endif %}>
@@ -32,7 +32,17 @@
       </button></figure>
       {% endfor %}
     </div>
-    {% if shown|length > 1 %}<p class="g-count"><span aria-hidden="true">&#9638;</span> {{ shown|length }} photos &middot; tap a photo to enlarge</p>{% endif %}
+    {% if more %}
+    <details class="more-photos"><summary>Show all {{ r.photos[:20]|length }} photos</summary>
+      <div class="gallery-more" data-gallery>
+        {% for p in more %}
+        <figure><button type="button" class="g-btn" data-full="{{ p }}" data-alt="{{ r.name }}, {{ r.area }}, {{ r.city }}: photo {{ loop.index + 9 }}" aria-label="Open photo {{ loop.index + 9 }}">
+          <img src="{{ p }}" width="640" height="480" alt="{{ r.name }}, {{ r.area }}, {{ r.city }}: photo {{ loop.index + 9 }}" loading="lazy" decoding="async"></button></figure>
+        {% endfor %}
+      </div>
+    </details>
+    {% endif %}
+    {% if shown|length > 1 %}<p class="g-count"><span aria-hidden="true">&#9638;</span> {{ r.photos[:20]|length }} photos &middot; tap a photo to enlarge</p>{% endif %}
   </section>
   <p class="credit" id="photo-credit" hidden></p>
 
