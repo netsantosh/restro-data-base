@@ -17,10 +17,10 @@
     </p>
   </header>
 
-  {% set shown = r.photos[:9] %}{% set more = r.photos[9:20] %}
+  {% set shown = r.photos[:8] %}{% set more = [] %}
   <section class="photos" aria-labelledby="photos-h">
     <h2 id="photos-h" class="vh">Photos of {{ r.name }}</h2>
-    <div class="gallery n{{ [shown|length, 5]|min }}" data-gallery{% if not shown %} data-recover data-place="{{ r.place_id }}" data-i="0" data-alt="{{ r.name }}, {{ r.area }}, {{ r.city }}"{% endif %}>
+    <div class="gallery n{{ 8 if shown|length >= 8 else ([shown|length, 5]|min) }}" data-gallery{% if not shown %} data-recover data-place="{{ r.place_id }}" data-i="0" data-alt="{{ r.name }}, {{ r.area }}, {{ r.city }}"{% endif %}>
       {% if not shown %}
       <figure class="ph-fig"><span class="ph">{{ initials(r.name) }}</span>
         <figcaption>Photos are not available for this place yet.{% if r.google_maps_link %} <a href="{{ r.google_maps_link }}" rel="nofollow noopener" target="_blank">See photos on Google Maps</a>{% endif %}</figcaption>
@@ -42,7 +42,7 @@
       </div>
     </details>
     {% endif %}
-    {% if shown|length > 1 %}<p class="g-count"><span aria-hidden="true">&#9638;</span> {{ r.photos[:20]|length }} photos &middot; tap a photo to enlarge</p>{% endif %}
+    {% if shown|length > 1 %}<p class="g-count"><span aria-hidden="true">&#9638;</span> {{ shown|length }} photos &middot; tap a photo to enlarge</p>{% endif %}
   </section>
   <p class="credit" id="photo-credit" hidden></p>
 
