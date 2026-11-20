@@ -12,14 +12,15 @@
     <p class="actions">
       {% if r.tel %}<a class="btn btn-dark" href="tel:{{ r.tel }}">Call</a>{% endif %}
       {% if r.directions %}<a class="btn" href="{{ r.directions }}" rel="nofollow noopener" target="_blank">Get directions</a>{% endif %}
+      {% if r.menu_url %}<a class="btn" href="{{ r.menu_url }}" rel="nofollow noopener" target="_blank">View menu</a>{% endif %}
       {% if r.website %}<a class="btn" href="{{ r.website }}" rel="nofollow noopener" target="_blank">Website</a>{% endif %}
     </p>
   </header>
 
-  {% set shown = r.photos[:5] %}
+  {% set shown = r.photos[:9] %}
   <section class="photos" aria-labelledby="photos-h">
     <h2 id="photos-h" class="vh">Photos of {{ r.name }}</h2>
-    <div class="gallery n{{ shown|length }}" data-gallery{% if not shown %} data-recover data-place="{{ r.place_id }}" data-i="0" data-alt="{{ r.name }}, {{ r.area }}, {{ r.city }}"{% endif %}>
+    <div class="gallery n{{ [shown|length, 5]|min }}" data-gallery{% if not shown %} data-recover data-place="{{ r.place_id }}" data-i="0" data-alt="{{ r.name }}, {{ r.area }}, {{ r.city }}"{% endif %}>
       {% if not shown %}
       <figure class="ph-fig"><span class="ph">{{ initials(r.name) }}</span>
         <figcaption>Photos are not available for this place yet.{% if r.google_maps_link %} <a href="{{ r.google_maps_link }}" rel="nofollow noopener" target="_blank">See photos on Google Maps</a>{% endif %}</figcaption>
@@ -55,6 +56,13 @@
         {% if r.rating %}<dt>Rating</dt><dd>{{ r.rating }} out of 5{% if r.reviews %} from {{ '{:,}'.format(r.reviews) }} Google reviews{% endif %}</dd>{% endif %}
         <dt>Location</dt><dd><a href="{{ u(area.path) }}">{{ r.area }}</a>, <a href="{{ u(city.path) }}">{{ r.city }}</a>, <a href="{{ u(state.path) }}">{{ r.state }}</a></dd>
       </dl>
+      {% if r.hours %}
+      <h2 class="h-sub">Opening hours</h2>
+      <table class="hours"><tbody>
+        {% for h in r.hours %}{% set d, _, t = h.partition(':') %}<tr><th scope="row">{{ d }}</th><td>{{ t.strip() }}</td></tr>{% endfor %}
+      </tbody></table>
+      <p class="small">Hours come from Google Maps and can change on holidays. Confirm with the restaurant before you go.</p>
+      {% endif %}
     </section>
     <aside class="panel">
       <h2>Find it on the map</h2>

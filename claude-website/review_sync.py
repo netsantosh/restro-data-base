@@ -1,4 +1,4 @@
-"""Collect a few Google Maps review texts per restaurant (headless Chrome) into review_cache/reviews.json.
+"""Collect a few Google Maps review texts, the opening hours and the menu link per restaurant (headless Chrome) into review_cache/reviews.json.
 
 Runs in its own workflow (reviews.yml), separate from the site build. The site build only READS the cache,
 so a slow or failed Google page never breaks a deploy. Each restaurant is retried at most every 30 days.
@@ -45,10 +45,55 @@ return out;
 """
 
 
-def open_reviews(driver, link, wait=3.0):
+
+# Opening hours and the menu link sit on the overview tab. Stable attributes first, class names as a fallback.
+JS_INFO = r"""
+const out = {hours: [], menu: ''};
+document.querySelectorAll('table tr').forEach(tr => {
+  const tds = tr.querySelectorAll('td');
+  if (tds.length < 2) return;
+  const day = (tds[0].innerText || '').trim();
+  const t = (tds[1].getAttribute('aria-label') || tds[1].innerText || '').trim();
+  if (/^(mon|tue|wed|thu|fri|sat|sun)/i.test(day) && t) out.hours.push(day + ': ' + t.split('\n')[0]);
+});
+const menuEl = document.querySelector('a[data-item-id="menu"]');
+if (menuEl && menuEl.href) out.menu = menuEl.href;
+return out;
+"""
+
+
+def read_info(driver):
+    """Opening hours (list of 'Monday: 9 am to 11 pm') and menu link from the open overview tab."""
+    try:
+        for el in driver.find_elements("css selector", "[data-item-id='oh'], div[jsaction*='openhours'], button[aria-label*='hours' i]")[:1]:
+            try:
+                el.click()
+                time.sleep(1.2)
+            except Exception:
+                pass
+        raw = driver.execute_script(JS_INFO) or {}
+    except Exception:
+        return {"hours": [], "menu": ""}
+    seen, hours = set(), []
+    for h in raw.get("hours", []):
+        day = h.split(":", 1)[0].strip().lower()[:3]
+        if day in seen:
+            continue
+        seen.add(day)
+        hours.append(re.sub(r"\s+", " ", h.replace(" ", " ").replace(" ", " ").replace("–", " to ").replace("—", " to ")).strip())
+    menu = raw.get("menu") or ""
+    if not menu.startswith(("http://", "https://")):
+        menu = ""
+    return {"hours": hours[:7] if len(hours) >= 5 else [], "menu": menu[:500]}
+
+
+def open_overview(driver, link, wait=3.0):
     driver.get(link)
     time.sleep(wait)
     _dismiss_consent(driver)
+
+
+def open_reviews(driver):
     tab = None
     for el in driver.find_elements("css selector", 'button[role="tab"]'):
         if "review" in ((el.get_attribute("aria-label") or "") + (el.text or "")).lower():
@@ -111,7 +156,8 @@ def main():
     CACHE.parent.mkdir(exist_ok=True)
     data = json.loads(CACHE.read_text("utf-8")) if CACHE.exists() else {}
     now = time.time()
-    todo = [r for r in rows if now - data.get(str(r["place_id"]), {}).get("t", 0) > RETRY_DAYS * 86400]
+    todo = [r for r in rows if now - data.get(str(r["place_id"]), {}).get("t", 0) > RETRY_DAYS * 86400
+            or not data.get(str(r["place_id"]), {}).get("info")]      # also visit places stored before hours and menu were collected
     if a.limit:
         todo = todo[:a.limit]
     print(f"{len(rows)} restaurants, {len(todo)} to check, {sum(1 for v in data.values() if v.get('reviews'))} already have reviews")
@@ -128,10 +174,12 @@ def main():
                     r = queue.pop()
                 pid = str(r["place_id"])
                 try:
-                    open_reviews(drv, str(r["google_maps_link"]))
+                    open_overview(drv, str(r["google_maps_link"]))
+                    info = read_info(drv)
+                    open_reviews(drv)
                     got = clean(expand_and_read(drv))
                     with lock:
-                        data[pid] = {"t": time.time(), "reviews": got}
+                        data[pid] = {"t": time.time(), "reviews": got, "hours": info["hours"], "menu": info["menu"], "info": 1}
                         stats["ok" if got else "empty"] += 1
                         n = stats["ok"] + stats["empty"]
                         if n % 25 == 0:

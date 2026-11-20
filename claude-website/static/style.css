@@ -224,6 +224,7 @@ a.pg:hover{border-color:var(--ink)}
 .gallery.n3 figure:first-child{grid-column:span 2;grid-row:span 2}.gallery.n3 figure:nth-child(n+2){grid-column:span 2}
 .gallery.n4 figure:first-child{grid-column:span 2;grid-row:span 2}.gallery.n4 figure:nth-child(4){grid-column:span 2}
 .gallery.n5 figure:first-child{grid-column:span 2;grid-row:span 2}
+.gallery.n5{grid-auto-rows:minmax(6.5rem,15vw)}
 .gallery.n0{display:block}
 .gallery.n0 .ph-fig{min-height:12rem;height:auto;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:.8rem;color:#fff;text-align:center;padding:1.5rem;background:linear-gradient(135deg,#0d0f12,#2c3037);border-radius:var(--r-lg)}
 .gallery.n0 .ph-fig .ph{position:static;background:none;font-size:3rem}
@@ -312,3 +313,5 @@ dialog#lightbox[open]{display:flex;align-items:center;justify-content:center}
 @media(prefers-reduced-motion:reduce){*,*::before,*::after{transition:none!important;animation:none!important;scroll-behavior:auto!important}}
 .hero-in:not(:has(.hero-photos)){grid-template-columns:minmax(0,1fr)}
 .article.rest-about{margin-inline:0}
+
+.h-sub{font-size:1.05rem;margin:1.6rem 0 .6rem}.hours{width:100%;border-collapse:collapse;font-size:.95rem}.hours th{text-align:left;font-weight:600;color:var(--muted);padding:.4rem .6rem .4rem 0;width:7.5rem}.hours td{padding:.4rem 0}.hours tr+tr{border-top:1px solid var(--line,rgba(0,0,0,.08))}

@@ -118,7 +118,7 @@ def load_restaurants(df, report, ignore_names=()):
         r = {k: s(rec.get(k)) for k in (
             "name", "country", "state", "city", "area", "address", "postal_code",
             "cuisine_type", "phone", "website", "google_maps_link", "place_id",
-            "price_level", "scraped_at")}
+            "price_level", "scraped_at", "menu_url", "opening_hours")}
         if not r["area"] and r["city"]:          # tabs without an area column value: use the postal code, else the centre
             r["area"] = f"{r['city']} {r['postal_code']}".strip() if r["postal_code"] else f"{r['city']} Centre"
         missing = [k for k in ("name", "country", "state", "city", "area", "place_id") if not r[k]]
@@ -144,6 +144,9 @@ def load_restaurants(df, report, ignore_names=()):
                 photos.append(u)
         r["photos"] = photos
         r["reviews_link"] = s(rec.get("google_reviews_link"))
+        r["hours"] = parse_hours_text(r.pop("opening_hours"))
+        if not r["menu_url"].lower().startswith(("http://", "https://")):
+            r["menu_url"] = ""
         r["review_list"] = load_reviews(rec)
         pid = r["place_id"]
         if pid in seen:                     # duplicate place_id: keep the newest scrape
@@ -574,6 +577,57 @@ def render_area(site, area, report):
                    og_type="website")
 
 
+DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
+
+
+def parse_hours_text(text):
+    """Optional 'opening_hours' sheet column: seven entries separated by ; | or new lines, e.g. 'Monday: 9 am to 11 pm'."""
+    out = []
+    for part in re.split(r"[;|\n]+", text or ""):
+        part = re.sub(r"\s+", " ", part.replace("\u202f", " ").replace("\u2013", " to ").replace("\u2014", " to ")).strip()
+        if part:
+            out.append(part)
+    return out if len(out) >= 5 else []
+
+
+def _to_24(h, m, ap):
+    h = int(h) % 12 + (12 if ap == "pm" else 0)
+    return f"{h:02d}:{int(m or 0):02d}"
+
+
+def hours_spec(hours):
+    """schema.org openingHoursSpecification from lines like 'Monday: 9 am to 2 pm, 5 to 11 pm', 'Open 24 hours' or 'Closed'."""
+    spec = []
+    for line in hours:
+        day, _, rest = line.partition(":")
+        day = day.strip().title()
+        if day not in DAYS:
+            continue
+        low = rest.lower()
+        if "closed" in low:
+            continue
+        if "24 hours" in low:
+            spec.append({"@type": "OpeningHoursSpecification", "dayOfWeek": day, "opens": "00:00", "closes": "23:59"})
+            continue
+        for a, b in re.findall(r"(\d{1,2}(?::\d\d)?\s*(?:am|pm)?)\s*to\s*(\d{1,2}(?::\d\d)?\s*(?:am|pm))", low):
+            end = re.fullmatch(r"(\d{1,2})(?::(\d\d))?\s*(am|pm)", b.strip())
+            st = re.fullmatch(r"(\d{1,2})(?::(\d\d))?\s*(am|pm)?", a.strip())
+            if not end or not st:
+                continue
+            spec.append({"@type": "OpeningHoursSpecification", "dayOfWeek": day,
+                         "opens": _to_24(st.group(1), st.group(2), st.group(3) or end.group(3)),
+                         "closes": _to_24(end.group(1), end.group(2), end.group(3))})
+    return spec
+
+
+def hours_summary(hours):
+    """One readable sentence for the FAQ: 'Open daily 9 am to 11 pm' or day by day."""
+    times = [h.partition(":")[2].strip() for h in hours]
+    if times and len(set(times)) == 1:
+        return f"is open daily: {times[0]}"
+    return "is open: " + "; ".join(hours)
+
+
 def restaurant_copy(r):
     """About paragraph and FAQs for a restaurant page, written only from the listing's own data."""
     kind = (r["cuisine_short"] + " restaurant") if r["cuisine_short"] else "restaurant"
@@ -602,9 +656,18 @@ def restaurant_copy(r):
                      "a": f"{r['name']} has a Google Maps rating of {r['rating']} out of 5"
                           + (f" based on {r['reviews']:,} reviews." if r["reviews"] else ".")
                           + " Ratings come from Google Maps and can change over time."})
-    faqs.append({"q": f"What are the opening hours of {r['name']}?",
-                 "a": "Opening hours can change, especially on holidays. Open the Google Maps listing from this page for the "
-                      "current hours before you visit."})
+    if r.get("hours"):
+        faqs.append({"q": f"What are the opening hours of {r['name']}?",
+                     "a": f"{r['name']} {hours_summary(r['hours'])}. Hours can change on holidays, so confirm with the "
+                          "restaurant or on Google Maps before you visit."})
+    else:
+        faqs.append({"q": f"What are the opening hours of {r['name']}?",
+                     "a": "Opening hours can change, especially on holidays. Open the Google Maps listing from this page for the "
+                          "current hours before you visit."})
+    if r.get("menu_url"):
+        faqs.append({"q": f"Where can I see the menu of {r['name']}?",
+                     "a": f"The menu link for {r['name']} is on this page, under the View menu button. Menus and prices can change, "
+                          "so check with the restaurant."})
     return about, faqs
 
 
@@ -650,6 +713,13 @@ def render_restaurant(site, r, report):
         site.page_images[r["path"]] = [absolute(site, x) for x in r["photos"][:5]]
     if r["google_maps_link"]:
         ld["hasMap"] = r["google_maps_link"]
+    spec = hours_spec(r.get("hours") or [])
+    if spec:
+        ld["openingHoursSpecification"] = spec
+    if r.get("menu_url"):
+        ld["hasMenu"] = r["menu_url"]
+    if r["rating"] and r["reviews"]:
+        ld["aggregateRating"] = {"@type": "AggregateRating", "ratingValue": r["rating"], "reviewCount": r["reviews"], "bestRating": 5}
     if r["price"] and re.fullmatch(r"[₹$€£]{1,4}", r["price"]):
         ld["priceRange"] = r["price"]
     if r["website"]:
@@ -902,6 +972,13 @@ def main():
             for r in restaurants:
                 if not r["review_list"]:
                     r["review_list"] = [dict(v, rating=int(v.get("rating") or 0)) for v in cached.get(r["place_id"], {}).get("reviews", [])]
+            for r in restaurants:
+                c = cached.get(r["place_id"], {})
+                if not r["hours"] and c.get("hours"):
+                    r["hours"] = c["hours"]
+                if not r["menu_url"] and str(c.get("menu", "")).startswith(("http://", "https://")):
+                    r["menu_url"] = c["menu"]
+            print(f"  hours: {sum(1 for r in restaurants if r['hours'])} restaurants, menu links: {sum(1 for r in restaurants if r['menu_url'])}")
             print(f"  reviews: {sum(1 for r in restaurants if r['review_list'])} restaurants have review text")
             ex = [r for r in restaurants if r["review_list"]][:3]
             for r in ex:
