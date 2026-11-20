@@ -298,7 +298,7 @@ class Vanmeya_WP {
         $path = self::incoming_or_upload('csv', 'images_database.csv');
         if (!$path) self::back('No file received. If the file is large, use the incoming folder option.');
         @set_time_limit(300);
-        list($rows, $err) = Vanmeya_Csv::read($path, 10);
+        list($rows, $err) = Vanmeya_Csv::read($path, 20);
         if ($err) self::back($err);
         $n = self::images()->enqueue($rows);
         if ($n === 0 && count($rows) > 0) self::back('Read ' . count($rows) . ' restaurants. Every photo in this file is already downloaded.');

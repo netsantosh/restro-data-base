@@ -61,6 +61,11 @@ def is_avatar(url):
 _RANK = {"gps-cs-s": 0, "gps-proxy": 0, "grass-cs": 1, "grass-proxy": 1, "geougc": 2}
 
 
+def photo_id(url):
+    """The photo itself, without the size suffix: the same picture served as =w400-h300 and =w800-h600 is one photo."""
+    return (url or "").split("=")[0]
+
+
 def photo_rank(url):
     """Business photos (gps-cs-s) first, then photos attached to reviews, then anything else."""
     m = re.match(r"https://lh3\.googleusercontent\.com/([^/]+)/", url or "")

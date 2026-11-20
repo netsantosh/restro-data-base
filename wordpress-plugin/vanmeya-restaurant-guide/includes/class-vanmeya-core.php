@@ -15,7 +15,7 @@ function vanmeya_folder($place_id) {
 
 class Vanmeya_Csv {
     /** Returns [rows, error]. Each row: place_id, name, urls[] (photo_1..photo_N in order), checked_at. */
-    public static function read($path, $max_photos = 10) {
+    public static function read($path, $max_photos = 20) {
         $f = @fopen($path, 'r');
         if (!$f) return [[], 'Could not open the file.'];
         $bom = fread($f, 3);

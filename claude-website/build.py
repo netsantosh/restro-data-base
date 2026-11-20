@@ -28,7 +28,7 @@ from jinja2 import Environment, FileSystemLoader, select_autoescape
 import data_sources
 import photo_check
 import photo_sync
-from utils import (clean_image, clip, cuisine_phrase, first_words, fit, initials, km_between,
+from utils import (clean_image, photo_id, clip, cuisine_phrase, first_words, fit, initials, km_between,
                    paragraphs, s, slugify, tel_href, thumb, to_float, to_int)
 
 ROOT = Path(__file__).resolve().parent
@@ -142,7 +142,12 @@ def load_restaurants(df, report, ignore_names=()):
             u = clean_image(rec.get(c))
             if u and u not in photos:
                 photos.append(u)
-        r["photos"] = photos
+        seen_ids, uniq = set(), []
+        for x in photos:                                   # the same picture can be listed twice with different size suffixes
+            if photo_id(x) not in seen_ids:
+                seen_ids.add(photo_id(x))
+                uniq.append(x)
+        r["photos"] = uniq
         r["reviews_link"] = s(rec.get("google_reviews_link"))
         r["hours"] = parse_hours_text(r.pop("opening_hours"))
         if not r["menu_url"].lower().startswith(("http://", "https://")):

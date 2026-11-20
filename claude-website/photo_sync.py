@@ -26,7 +26,7 @@ from pathlib import Path
 import requests
 from PIL import Image
 
-from utils import clean_image, is_avatar, photo_rank, thumb
+from utils import clean_image, is_avatar, photo_id, photo_rank, thumb
 
 CODES = collections.Counter()   # HTTP status codes seen this run (for the build log)
 ROOT = Path(__file__).parent
@@ -357,20 +357,42 @@ def _dismiss_consent(driver):
 
 
 def collect_urls(driver, maps_link, wait=3.0):
-    """Open a Google Maps listing and return the photo URLs currently shown for it (no reviewer avatars)."""
+    """Open a Google Maps listing and return the photo URLs shown for it (no reviewer avatars).
+
+    Reads the overview first, then opens the Photos tab and scrolls it so that up to about 30 photos are found.
+    """
     driver.get(maps_link)
     time.sleep(wait)
     _dismiss_consent(driver)
-    cands = []
-    for img in driver.find_elements("css selector", "img"):
-        cands.append(img.get_attribute("src") or "")
-    cands += [m.replace("\\u003d", "=").replace("\\u0026", "&") for m in PHOTO_RE.findall(driver.page_source)]
-    found = []
+
+    def grab():
+        c = [img.get_attribute("src") or "" for img in driver.find_elements("css selector", "img")]
+        c += [m.replace("\\u003d", "=").replace("\\u0026", "&") for m in PHOTO_RE.findall(driver.page_source)]
+        return c
+
+    cands = grab()
+    try:
+        for el in driver.find_elements("css selector", "button[aria-label*='Photo' i], button[data-tab-index='1'], button[role='tab']"):
+            label = ((el.get_attribute("aria-label") or "") + " " + (el.text or "")).lower()
+            if "photo" in label or "all" == label.strip():
+                el.click()
+                time.sleep(2)
+                break
+        for _ in range(6):                                 # scroll the photo grid so more thumbnails load
+            panes = driver.find_elements("css selector", "div.m6QErb.DxyBCb, div[role='main'] div.m6QErb, div[role='feed']")
+            if panes:
+                driver.execute_script("arguments[0].scrollTop = arguments[0].scrollHeight", panes[-1])
+            time.sleep(0.9)
+        cands += grab()
+    except Exception:
+        pass
+    found, ids = [], set()
     for src in sorted(cands, key=photo_rank):
         if "googleusercontent.com" not in src or is_avatar(src):
             continue
         src = clean_image(src)
-        if src and src not in found:
+        if src and photo_id(src) not in ids:
+            ids.add(photo_id(src))
             found.append(src)
     return found
 
@@ -412,18 +434,20 @@ def refresh_with_selenium(store, missing, per, size_main, size_other, max_minute
         if not urls:
             stats["no_links"] += 1
         have = list(r["local_keys"])
+        have_ids = {photo_id(x) for x in r.get("verified_urls", [])}
         new = []
-        for u in urls[:per + 8]:
+        for u in urls[:per + 40]:
             if len(have) + len(new) >= per:
                 break
-            if key_for(u) in have:
+            if key_for(u) in have or photo_id(u) in have_ids:
                 continue
+            have_ids.add(photo_id(u))
             if fetch_one(store, u, size_main if not have and not new else size_other):
                 new.append(u)
         if new:
             stats["fixed"] += 1
             fresh = store.data.setdefault("fresh", {})
-            fresh[r["place_id"]] = (fresh.get(r["place_id"], []) + new)[:12]
+            fresh[r["place_id"]] = (fresh.get(r["place_id"], []) + new)[:40]
             r["_fresh"] = new
 
     def worker():
@@ -480,19 +504,25 @@ def sync(restaurants, per=4, export_per=0, min_photos=3, download_minutes=0, sel
     want = max(per, export_per)          # the site shows `per` photos; the images database export wants up to `export_per`
 
     def work(r):
-        got, urls = [], []
-        for u in sorted((x for x in r["photos"] if not is_avatar(x)), key=photo_rank)[:24 if want > per else 14]:
+        got, urls, ids = [], [], set()
+        for u in sorted((x for x in r["photos"] if not is_avatar(x)), key=photo_rank)[:40 if want > per else 14]:
             if len(got) >= want:
                 break
+            if photo_id(u) in ids:                       # same picture listed twice (different size suffix)
+                continue
             if fetch_one(store, u, size_main if not got else size_other, can_download()):
                 got.append(key_for(u))
                 urls.append(u)
+                ids.add(photo_id(u))
         for u in store.data.get("fresh", {}).get(r["place_id"], []):   # links Selenium found on earlier runs
             if len(got) >= want:
                 break
+            if photo_id(u) in ids:
+                continue
             if key_for(u) not in got and fetch_one(store, u, size_main if not got else size_other, can_download()):
                 got.append(key_for(u))
                 urls.append(u)
+                ids.add(photo_id(u))
         r["local_keys"] = got
         r["verified_urls"] = urls
 
@@ -514,7 +544,7 @@ def sync(restaurants, per=4, export_per=0, min_photos=3, download_minutes=0, sel
     fixed = 0
     if selenium and missing and not CACHE_ONLY:
         log(f"  {len(missing)} restaurants have fewer than {min_photos} working photos; refreshing from Google Maps (Selenium)")
-        fixed = refresh_with_selenium(store, missing, per, size_main, size_other, refresh_minutes,
+        fixed = refresh_with_selenium(store, missing, want, size_main, size_other, refresh_minutes,
                                       driver_factory, collector, log, selenium_workers)
         for r in missing:
             for u in r.pop("_fresh", []):
