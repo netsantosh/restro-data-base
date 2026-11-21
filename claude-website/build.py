@@ -633,6 +633,45 @@ def hours_summary(hours):
     return "is open: " + "; ".join(hours)
 
 
+THEMES = [
+    ("the food and taste", r"\b(food|taste|tasty|delicious|flavou?r|dish|dishes|menu|fresh|yummy|portion)\b"),
+    ("friendly service", r"\b(service|staff|waiter|waiters|server|hospitality|courteous|polite|friendly)\b"),
+    ("the ambience", r"\b(ambien[cs]e|atmosphere|decor|interior|vibe|cozy|cosy|music|seating|view)\b"),
+    ("value for money", r"\b(price|prices|pricing|value|affordable|reasonable|worth|budget)\b"),
+    ("coffee and drinks", r"\b(coffee|tea|latte|cappuccino|mocktail|cocktail|juice|shake|beer)\b"),
+    ("desserts and bakery", r"\b(dessert|desserts|cake|cakes|pastry|pastries|brownie|ice cream|sweet|sweets)\b"),
+    ("a family friendly setting", r"\b(family|families|kids|children|child)\b"),
+    ("vegetarian options", r"\b(veg|vegetarian|vegan|jain)\b"),
+    ("cleanliness", r"\b(clean|hygiene|hygienic|neat)\b"),
+    ("parking", r"\b(parking|park)\b"),
+    ("quick service", r"\b(quick|fast|prompt|speedy)\b"),
+]
+
+
+def review_themes(reviews):
+    """What the review excerpts on the page talk about: themes that at least two excerpts mention (counted, not guessed)."""
+    texts = [str(v.get("text", "")).lower() for v in reviews or [] if v.get("text")]
+    if len(texts) < 3:
+        return []
+    found = []
+    for label, rx in THEMES:
+        n = sum(1 for t in texts if re.search(rx, t))
+        if n >= 2:
+            found.append((n, label))
+    found.sort(key=lambda x: -x[0])
+    return [lab for _, lab in found[:4]]
+
+
+def nearest(r, pool, k=6):
+    """The k closest restaurants by distance (same city), so every page links to different neighbours."""
+    if r["lat"] is None or r["lon"] is None:
+        return []
+    cand = [(km_between(r["lat"], r["lon"], x["lat"], x["lon"]), x) for x in pool
+            if x is not r and x["lat"] is not None and x["lon"] is not None]
+    cand.sort(key=lambda t: t[0])
+    return [x for d, x in cand[:k] if d <= 15]
+
+
 def restaurant_copy(r):
     """About paragraph and FAQs for a restaurant page, written only from the listing's own data."""
     kind = (r["cuisine_short"] + " restaurant") if r["cuisine_short"] else "restaurant"
@@ -649,6 +688,10 @@ def restaurant_copy(r):
     more.append("Use the buttons above to call, open directions or visit the website, and scroll down for the full "
                 "address and nearby restaurants.")
     about.append(" ".join(more))
+    th = review_themes(r.get("review_list"))
+    if th:
+        about.append("In the Google reviews shown on this page, diners most often talk about "
+                     + (", ".join(th[:-1]) + " and " + th[-1] if len(th) > 1 else th[0]) + ".")
     faqs = [{"q": f"Where is {r['name']} located?", "a": f"{r['name']} is at {r['address']}." if r["address"]
              else f"{r['name']} is in {r['area']}, {r['city']}. Open the Google Maps listing for the exact location."}]
     if r["cuisine_short"] or r["cuisine_type"]:
@@ -689,7 +732,7 @@ def render_restaurant(site, r, report):
     bits.append("See photos, address, phone number and directions.")
     desc = clip(" ".join(bits), 155)
     crumbs = crumbs_for(site, area, last_link=True) + [(r["name"], None)]
-    related_area = [x for x in sorted(area.restaurants, key=lambda x: -x["score"]) if x is not r][:6]
+    related_area = nearest(r, city.restaurants) or [x for x in sorted(area.restaurants, key=lambda x: -x["score"]) if x is not r][:6]
     same_cuisine = []
     if r["cuisine_short"]:
         same_cuisine = [x for x in sorted(city.restaurants, key=lambda x: -x["score"])

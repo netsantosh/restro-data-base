@@ -106,9 +106,9 @@
 
   {% if related_area %}
   <section class="block">
-    <h2>More restaurants in {{ r.area }}</h2>
+    <h2>Restaurants near {{ r.name }}</h2>
     <div class="grid">{% for x in related_area %}{{ m.card(x) }}{% endfor %}</div>
-    <p class="more"><a href="{{ u(area.path) }}">See all restaurants in {{ r.area }}</a></p>
+    <p class="more"><a href="{{ u(area.path) }}">See all restaurants in {{ r.area }}</a> &middot; <a href="{{ u(city.path) }}">All restaurants in {{ r.city }}</a></p>
   </section>
   {% endif %}
   {% if same_cuisine %}
