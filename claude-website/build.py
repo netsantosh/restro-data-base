@@ -13,6 +13,8 @@ Live (Google Sheets, used by the GitHub Action):
 """
 import argparse
 import hashlib
+import html as _html
+import math
 import json
 import os
 import re
@@ -24,6 +26,7 @@ from pathlib import Path
 from xml.sax.saxutils import escape as xml_escape
 
 from jinja2 import Environment, FileSystemLoader, select_autoescape
+from markupsafe import Markup
 
 import data_sources
 import photo_check
@@ -478,6 +481,146 @@ def generic_desc(node):
 
 
 
+# ---------- editorial text for category pages, built only from facts in the data (places, distances, cuisines, prices, ratings) ----------
+
+def _a(site, node, label=None):
+    return f'<a href="{_html.escape(site.u(node.path))}">{_html.escape(label or node.name)}</a>'
+
+
+def _join(items, last="and"):
+    items = list(items)
+    if len(items) <= 1:
+        return "".join(items)
+    return ", ".join(items[:-1]) + f" {last} " + items[-1]
+
+
+def _compass(a, b):
+    ang = (math.degrees(math.atan2((b[1] - a[1]) * math.cos(math.radians(a[0])), b[0] - a[0])) + 360) % 360
+    return ["north", "north-east", "east", "south-east", "south", "south-west", "west", "north-west"][int((ang + 22.5) // 45) % 8]
+
+
+def _band(share):
+    return ("nearly all of" if share >= .85 else "most of" if share >= .6 else "about half of" if share >= .4
+            else "a fair share of" if share >= .2 else "a small number of")
+
+
+COMMON_NOUNS = {"cafe", "bakery", "bar", "pub", "pizza", "fast food", "restaurant", "dessert", "juice", "ice cream", "sweets",
+                "seafood", "steakhouse", "biryani", "burger", "sandwich", "coffee", "tea", "dhaba", "diner", "buffet", "brunch"}
+
+
+def lab(c):
+    """Cuisine label inside a sentence: common nouns in lower case, nationalities and regions keep their capital."""
+    return c.lower() if c.lower() in COMMON_NOUNS else c
+
+
+def food_sentences(node):
+    """Describe the food mix, price level and ratings of a place in words, from its own restaurants."""
+    rs = node.restaurants if hasattr(node, "restaurants") else []
+    out = []
+    cs = [(c, n) for c, n in node.cuisines if c]
+    total = sum(n for _, n in cs)
+    if cs and total:
+        top, tn = cs[0]
+        rest = [lab(c) for c, _ in cs[1:4]]
+        if len(cs) == 1:
+            out.append(f"The listings here are all {lab(top)} places.")
+        elif tn / total >= .45:
+            out.append(pick(node.path + "c", [
+                f"{top} places make up {_band(tn / total)} what is listed, with {_join(rest)} filling in the rest.",
+                f"If you are after {lab(top)} food you are in the right spot, since it is the main thing on offer, alongside {_join(rest)}.",
+            ]))
+        else:
+            out.append(pick(node.path + "c", [
+                f"No single kind of food dominates. {top} is the most common, followed by {_join(rest)}.",
+                f"It is a mixed bag: {lab(top)} leads, and {_join(rest)} are not far behind.",
+            ]))
+    prices = [len(r["price"]) for r in rs if r.get("price") and re.fullmatch(r"[₹$€£]{1,4}", r["price"])]
+    if len(prices) >= 5:
+        mid = Counter(prices).most_common(1)[0][0]
+        sym = next(r["price"] for r in rs if r.get("price") and len(r["price"]) == mid)
+        word = {1: "easy on the wallet", 2: "mid range", 3: "on the pricier side", 4: "upmarket"}.get(mid, "mid range")
+        out.append(f"Where a price level is shown, it is usually {sym}, which makes eating out here {word}.")
+    ratings = sorted(r["rating"] for r in rs if r.get("rating"))
+    if len(ratings) >= 5:
+        high = sum(1 for x in ratings if x >= 4.0) / len(ratings)
+        med = ratings[len(ratings) // 2]
+        out.append(f"Diners on Google Maps rate {_band(high)} the places here 4.0 or higher, and the typical rating is around {med:.1f}.")
+    return out
+
+
+def area_story(site, area, city, state, nearby):
+    """Paragraphs (with links) and FAQs for an area page."""
+    A, C, S = _html.escape(area.name), _a(site, city), _a(site, state)
+    ctr_c, ctr_a = getattr(city, "center", None), getattr(area, "center", None)
+    if ctr_c and ctr_a:
+        d = km_between(*ctr_c, *ctr_a)
+        way = _compass(ctr_c, ctr_a)
+        where = (f"{A} is close to the middle of {C}, within about a kilometre or two of the centre." if d < 1.5 else
+                 f"{A} lies about {d:.0f} km {way} of the centre of {C}, in {S}.")
+    else:
+        where = f"{A} is one of the neighbourhoods of {C} in {S}."
+    paras = [where + " " + " ".join(food_sentences(area))]
+    near = nearby[:4]
+    if near:
+        bits = []
+        for a in near:
+            if ctr_a and getattr(a, "center", None):
+                bits.append(f"{_a(site, a)} ({km_between(*ctr_a, *a.center):.0f} km away)" if km_between(*ctr_a, *a.center) >= 1
+                            else f"{_a(site, a)} (right next door)")
+            else:
+                bits.append(_a(site, a))
+        paras.append(pick(area.path + "n", [
+            f"If you are happy to travel a little, {_join(bits)} each have their own pages too.",
+            f"Not finding what you want? {_join(bits)} are the closest neighbourhoods we cover.",
+        ]) + f" The full picture for the city is on the {C} page.")
+    else:
+        paras.append(f"For more choice, look at the wider {C} page or browse everything in {S}.")
+    fac = food_sentences(area)
+    cs = [c for c, _ in area.cuisines[:3]]
+    faqs = []
+    if cs:
+        faqs.append({"q": f"What kind of food can I find in {area.name}?",
+                     "a": f"The most common types listed in {area.name} are {_join([lab(c) for c in cs])}, so it is worth using the cuisine filter on the page to narrow things down."})
+    if near:
+        faqs.append({"q": f"Which areas are close to {area.name}?",
+                     "a": f"Nearby neighbourhoods in {city.name} include {_join([a.name for a in near])}."})
+    return [Markup(x) for x in paras], faqs
+
+
+def place_story(site, node):
+    """A short, linked paragraph for country, state and city pages: where the restaurants are and what is there."""
+    kids = sorted(node.children.values(), key=lambda n: -n.count)
+    out = []
+    if not kids:
+        return out
+    top = kids[:4]
+    more = kids[4:7]
+    if node.kind == "city":
+        s = pick(node.path + "s", [
+            f"The neighbourhoods people look at most in {_html.escape(node.name)} are {_join([_a(site, k) for k in top])}.",
+            f"If you are new to {_html.escape(node.name)}, {_join([_a(site, k) for k in top])} are good places to start.",
+        ])
+        if more:
+            s += f" Smaller pockets such as {_join([_a(site, k) for k in more])} are worth a look when the busier areas are full."
+        out.append(s)
+        out.append(f"{_html.escape(node.name)} is part of {_a(site, node.parent)}, and you can also browse the other cities there.")
+    elif node.kind == "state":
+        s = f"{_join([_a(site, k) for k in top])} are the cities in {_html.escape(node.name)} with the most to browse."
+        if more:
+            s += f" {_join([_a(site, k) for k in more])} and other towns are listed too."
+        out.append(s)
+    else:
+        s = f"Most of what is listed in {_html.escape(node.name)} is in {_join([_a(site, k) for k in top])}."
+        if more:
+            s += f" {_join([_a(site, k) for k in more])} are also covered."
+        out.append(s)
+    fs = food_sentences(node)
+    if fs:
+        out.append(" ".join(fs))
+    return [Markup(x) for x in out]
+
+
+
 def render_place(site, node, content, report):
     c = content.get(node.path)
     kind = node.kind
@@ -505,6 +648,7 @@ def render_place(site, node, content, report):
     else:
         top_intro, bottom_intro = generic_intro(node), []
     crumbs = crumbs_for(site, node)
+    story = place_story(site, node)
     schema = [finalize_breadcrumb_schema(breadcrumb_schema(site, crumbs), site.canonical(node.path))]
     if c and c["faqs"]:
         schema.append(faq_schema(c["faqs"]))
@@ -524,7 +668,7 @@ def render_place(site, node, content, report):
             site.write(node.path, "place.html", indexable=bool(c), lastmod=node.lastmod, title=title, description=desc,
                        schema=schema, crumbs=crumbs, node=node, h1=h1, top_intro=top_intro, bottom_intro=bottom_intro,
                        sections=(c and c["sections"]) or [], faqs=(c and c["faqs"]) or [], tiles=tiles,
-                       tiles_heading=heading, secondary=secondary, listing=chunk, pager=pager, first_page=True,
+                       tiles_heading=heading, secondary=secondary, listing=chunk, pager=pager, first_page=True, story=story,
                        top_heading=f"Top rated restaurants in {name}", og_type="website")
         else:
             pcrumbs = crumbs_for(site, node, last_link=True) + [(f"Page {page}", None)]
@@ -563,10 +707,13 @@ def render_area(site, area, report):
     size = int(site.cfg.get("area_page_size", 100))
     total = max(1, -(-len(rs) // size))
     cuisines = [c for c, _ in area.cuisines]
+    story, story_faqs = area_story(site, area, city, state, nearby)
     for page in range(1, total + 1):
         chunk = rs[(page - 1) * size: page * size]
         pcrumbs = crumbs if page == 1 else crumbs_for(site, area, last_link=True) + [(f"Page {page}", None)]
         schema = [finalize_breadcrumb_schema(breadcrumb_schema(site, pcrumbs), site.canonical(page_path(area.path, page)))]
+        if page == 1 and story_faqs:
+            schema.append(faq_schema(story_faqs))
         schema.append({"@context": "https://schema.org", "@type": "ItemList", "name": f"Restaurants in {area.name}, {city.name}",
                        "itemListElement": [{"@type": "ListItem", "position": (page - 1) * size + i + 1,
                                             "url": site.cfg["base_url"] + r["href"], "name": r["name"]}
@@ -577,6 +724,7 @@ def render_area(site, area, report):
                    description=desc, schema=schema, crumbs=pcrumbs, node=area, city=city, state=state,
                    h1=f"Best Restaurants in {area.name}, {city.name}",
                    intro=generic_intro(area), restaurants=chunk, cuisines=cuisines,
+                   story=story if page == 1 else [], story_faqs=story_faqs if page == 1 else [],
                    pager=pagination(site, area.path, page, total),
                    nearby=[{"name": a.name, "href": site.u(a.path), "sub": ""} for a in nearby[:12]] if page == 1 else [],
                    og_type="website")
