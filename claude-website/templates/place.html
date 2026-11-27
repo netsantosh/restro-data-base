@@ -30,13 +30,14 @@
   </section>
   {% endif %}
 
-  {% if first_page and (bottom_intro or sections or faqs) %}
+  {% if first_page and (bottom_intro or sections or faqs or story) %}
   <section class="article"><!--vm:article-->
     {% if bottom_intro %}
     <h2>About restaurants in {{ node.name }}</h2>
     {% for p in bottom_intro %}<p>{{ p }}</p>{% endfor %}
     {% endif %}
     {{ m.prose(sections) }}
+    {% for p in story %}<p>{{ p }}</p>{% endfor %}
     {{ m.faq(faqs) }}
   <!--/vm:article--></section>
   {% endif %}

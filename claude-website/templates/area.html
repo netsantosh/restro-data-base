@@ -40,6 +40,14 @@
   <p id="flt-empty" class="empty" hidden>No restaurants match these filters. Try a different cuisine or rating.</p>
   {{ m.pager(pager) }}
 
+  {% if story %}
+  <section class="article"><!--vm:article-->
+    <h2>Eating out in {{ node.name }}</h2>
+    {% for p in story %}<p>{{ p }}</p>{% endfor %}
+    {{ m.faq(story_faqs) }}
+  <!--/vm:article--></section>
+  {% endif %}
+
   {% if nearby %}
   <section class="block">
     <h2>More areas in {{ city.name }}</h2>
